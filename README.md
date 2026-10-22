@@ -7,12 +7,14 @@ Atlas adalah dashboard lokal untuk memantau analisis teknikal MetaTrader 5 (MT5)
 ## Fitur
 
 - Dashboard lokal untuk memantau simbol, timeframe, kondisi pasar, dan sinyal.
+- Penanda BUY/SELL pada grafik untuk sinyal yang tersimpan di jurnal lokal.
 - Preset strategi trend dan scalping, dengan analisis timeframe lebih tinggi.
 - Halaman **Analisis Mandiri** dengan kalender ekonomi publik dan indikator makro dari FRED.
 - Analisis makro Gemini opsional, menggunakan konfigurasi backend.
 - Jurnal sinyal lokal dan fitur backtest yang tersedia di dashboard.
 - Notifikasi Telegram opsional.
-- Order manual memerlukan konfirmasi. Auto Pilot dimulai dalam keadaan **OFF** dan hanya tersedia jika diizinkan saat aplikasi dijalankan.
+- Order sesuai sinyal dan entry manual di luar sinyal tersedia setelah order diizinkan saat aplikasi dijalankan. Entry manual wajib memakai SL/TP dan tetap dibatasi risiko serta konfirmasi.
+- Auto Pilot dimulai dalam keadaan **OFF** dan hanya tersedia jika diizinkan saat aplikasi dijalankan.
 
 ## Persyaratan
 
@@ -57,11 +59,28 @@ python .\pro_regime_structure.py `
 
 Buka dashboard di `http://127.0.0.1:8765/` atau halaman analisis mandiri di `http://127.0.0.1:8765/analyst`. Tekan `Ctrl+C` pada jendela proses untuk menghentikan monitor.
 
+### Entry manual di luar sinyal
+
+Launcher default menjaga order manual tetap nonaktif. Untuk mengizinkan entry manual BUY/SELL tanpa sinyal strategi, jalankan monitor dari PowerShell secara interaktif dengan `--enable-order-sending`:
+
+```powershell
+python .\pro_regime_structure.py `
+  --symbol XAUUSD.m `
+  --timeframe M5 `
+  --higher-timeframe M15 `
+  --mode scalping `
+  --terminal "C:\Program Files\MetaTrader 5\terminal64.exe" `
+  --web `
+  --enable-order-sending
+```
+
+Saat diminta, ketik persis `ENABLE LIVE ORDERS`. Setelah dashboard terbuka, isi volume, SL, dan TP, lalu pilih **Open BUY manual** atau **Open SELL manual** dan tinjau konfirmasi. Order manual tidak memerlukan sinyal, tetapi tetap harus lolos validasi SL/TP, spread, margin, dan batas risiko akun. Fitur ini mengirim order ke akun MT5 yang sedang login; mulai dari akun demo.
+
 ## Order dan keamanan
 
 - Dashboard hanya mendengarkan pada `127.0.0.1` (localhost); jangan mengeksposnya ke internet atau jaringan publik.
 - Launcher mengaktifkan ketersediaan Auto Pilot, tetapi Auto Pilot **dimulai OFF**. Jangan aktifkan kecuali Anda memahami risikonya dan telah memeriksa akun, batas risiko, serta pengaturan strategi.
-- Order manual hanya tersedia melalui dashboard dengan konfirmasi. Jangan mengandalkan sinyal sebagai pengganti keputusan dan pengelolaan risiko Anda sendiri.
+- Entry manual di luar sinyal hanya tersedia setelah `--enable-order-sending` dan konfirmasi eksplisit di terminal. SL/TP, validasi risiko, serta konfirmasi dashboard tetap diwajibkan. Jangan mengandalkan sinyal sebagai pengganti keputusan dan pengelolaan risiko Anda sendiri.
 - File `.env` berisi rahasia dan dikecualikan dari Git. Jangan pernah menambahkan API key, data akun, log, atau database pribadi ke commit publik.
 - Data makro dapat tertunda dan feed publik dapat berubah atau tidak tersedia. Periksa sumber dan waktu observasi sebelum menggunakannya.
 

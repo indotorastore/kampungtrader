@@ -139,6 +139,52 @@ class IndicatorTests(unittest.TestCase):
         self.assertIn("tidak valid", message)
         symbol_info.assert_not_called()
 
+    def test_manual_order_uses_explicit_levels_and_enforces_risk(self) -> None:
+        symbol_info = SimpleNamespace(
+            volume_min=0.01,
+            volume_max=10.0,
+            volume_step=0.01,
+            digits=2,
+            filling_mode=0,
+        )
+        tick = SimpleNamespace(ask=100.1, bid=100.0)
+        account = SimpleNamespace(
+            equity=10000.0, margin_free=5000.0, trade_allowed=True
+        )
+        terminal = SimpleNamespace(connected=True, trade_allowed=True)
+        with (
+            patch.object(monitor.mt5, "symbol_info", return_value=symbol_info),
+            patch.object(monitor.mt5, "symbol_info_tick", return_value=tick),
+            patch.object(monitor.mt5, "account_info", return_value=account),
+            patch.object(monitor.mt5, "terminal_info", return_value=terminal),
+            patch.object(monitor.mt5, "positions_get", return_value=()),
+            patch.object(monitor.mt5, "orders_get", return_value=()),
+            patch.object(monitor.mt5, "order_calc_profit", return_value=-20.0),
+            patch.object(monitor.mt5, "order_calc_margin", return_value=100.0),
+            patch.object(monitor.mt5, "SYMBOL_FILLING_IOC", 2, create=True),
+            patch.object(monitor.mt5, "SYMBOL_FILLING_FOK", 1, create=True),
+            patch.object(
+                monitor.mt5, "order_check", return_value=SimpleNamespace(retcode=0)
+            ),
+        ):
+            request, detail, risk_percent = monitor.prepare_manual_order(
+                "BUY", "TEST", 0.1, 99.0, 102.0, Config(max_risk_percent=1.0), 20
+            )
+            self.assertIsNotNone(request)
+            self.assertEqual(request["type"], monitor.mt5.ORDER_TYPE_BUY)
+            self.assertEqual(request["sl"], 99.0)
+            self.assertEqual(request["tp"], 102.0)
+            self.assertEqual(request["comment"], "AtlasManual")
+            self.assertEqual(risk_percent, 0.2)
+            self.assertIn("Estimasi rugi SL", detail)
+
+            invalid_request, message, invalid_risk = monitor.prepare_manual_order(
+                "BUY", "TEST", 0.1, 101.0, 102.0, Config(), 20
+            )
+        self.assertIsNone(invalid_request)
+        self.assertIn("sisi harga", message)
+        self.assertIsNone(invalid_risk)
+
     def test_dashboard_symbol_endpoint_validates_and_selects_only_allowed_symbol(self) -> None:
         server, state, lock = create_dashboard_server(0)
         state["symbols"] = ["TEST", "OTHER"]
@@ -970,6 +1016,9 @@ class IndicatorTests(unittest.TestCase):
             self.assertIn("Analisis Mandiri", html)
             self.assertIn("Jurnal & hasil sinyal", html)
             self.assertIn("Backtest historis", html)
+            self.assertIn("Open order manual · di luar aturan sinyal", html)
+            self.assertIn("BUY sinyal", html)
+            self.assertIn("SELL sinyal", html)
             self.assertIn('value="3000"', html)
             self.assertIn('id="strategy-mode"', html)
             self.assertIn('id="autopilot-toggle"', html)
@@ -1237,6 +1286,86 @@ class IndicatorTests(unittest.TestCase):
             payload = json.loads(response.read())
             self.assertEqual(response.status, 403)
             self.assertIn("dinonaktifkan", payload["message"])
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_manual_order_endpoint_accepts_explicit_direction_without_signal(self) -> None:
+        server, state, lock = create_dashboard_server(0)
+        with lock:
+            state["actions_enabled"] = True
+            state["symbol"] = "TEST"
+            state["status"] = "NO TRADE"
+            state["setup"] = None
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            connection = http.client.HTTPConnection(host, port, timeout=3)
+            connection.request("GET", "/")
+            page = connection.getresponse()
+            token = re.search(
+                r'const DASHBOARD_TOKEN = "([^"]+)"',
+                page.read().decode("utf-8"),
+            ).group(1)
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": f"http://{host}:{port}",
+                "X-Dashboard-Token": token,
+            }
+            body = {
+                "direction": "BUY",
+                "volume": 0.1,
+                "stop": 99.0,
+                "target": 102.0,
+                "confirm": "KIRIM MANUAL BUY",
+            }
+            result = SimpleNamespace(
+                retcode=monitor.mt5.TRADE_RETCODE_DONE,
+                order=123,
+                deal=456,
+                comment="done",
+            )
+            with (
+                patch.object(monitor, "get_spread_points", return_value=1),
+                patch.object(
+                    monitor,
+                    "prepare_manual_order",
+                    return_value=({"action": "deal"}, "risk ok", 0.2),
+                ) as prepare,
+                patch.object(monitor.mt5, "order_send", return_value=result) as send,
+            ):
+                connection.request(
+                    "POST",
+                    "/api/manual-order",
+                    body=json.dumps(body),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertIn("Order manual BUY diterima", payload["message"])
+                self.assertEqual(state["status"], "NO TRADE")
+                self.assertIn("Order manual BUY diterima", state["last_action"])
+                prepare.assert_called_once_with(
+                    "BUY", "TEST", 0.1, 99.0, 102.0, Config(), 20
+                )
+                send.assert_called_once_with({"action": "deal"})
+
+                with lock:
+                    state["auto_pilot_enabled"] = True
+                connection.request(
+                    "POST",
+                    "/api/manual-order",
+                    body=json.dumps(body),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                self.assertEqual(response.status, 409)
+                self.assertIn("Matikan Auto Pilot", payload["message"])
+                send.assert_called_once()
             connection.close()
         finally:
             server.shutdown()

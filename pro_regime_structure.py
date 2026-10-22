@@ -1686,15 +1686,20 @@ def calculate_risk_based_volume(
     return volume, f"Lot otomatis {volume:g} untuk risiko target {risk_percent:.2f}% equity."
 
 
-def prepare_signal_order(
-    setup: Setup,
+def prepare_market_order(
+    direction: str,
     symbol: str,
     volume: float,
+    stop: float,
+    target: float,
     config: Config,
     deviation_points: int,
+    comment: str,
 ) -> tuple[dict[str, Any] | None, str, float | None]:
-    if setup.status not in ("BUY", "SELL") or setup.stop is None or setup.target2 is None:
-        return None, "Tidak ada sinyal BUY/SELL aktif dengan level SL/TP.", None
+    if direction not in ("BUY", "SELL"):
+        return None, "Arah order tidak valid.", None
+    if not np.isfinite(stop) or not np.isfinite(target) or stop <= 0 or target <= 0:
+        return None, "Level SL dan TP harus berupa harga positif yang valid.", None
 
     symbol_info = mt5.symbol_info(symbol)
     tick = mt5.symbol_info_tick(symbol)
@@ -1717,11 +1722,9 @@ def prepare_signal_order(
     if len(existing_positions) > 0 or len(existing_orders) > 0:
         return None, "Sudah ada posisi atau pending order pada simbol ini.", None
 
-    is_buy = setup.status == "BUY"
+    is_buy = direction == "BUY"
     order_type = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL
     price = float(tick.ask if is_buy else tick.bid)
-    stop = float(setup.stop)
-    target = float(setup.target2)
     if (is_buy and not stop < price < target) or (
         not is_buy and not target < price < stop
     ):
@@ -1763,7 +1766,7 @@ def prepare_signal_order(
         "tp": round(target, symbol_info.digits),
         "deviation": deviation_points,
         "magic": 20261022,
-        "comment": "ProRegimeConfluence",
+        "comment": comment,
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": filling_mode,
     }
@@ -1778,6 +1781,48 @@ def prepare_signal_order(
         f"Estimasi rugi SL {abs(float(expected_loss)):.2f} "
         f"({risk_percent:.2f}% equity)"
     ), risk_percent
+
+
+def prepare_signal_order(
+    setup: Setup,
+    symbol: str,
+    volume: float,
+    config: Config,
+    deviation_points: int,
+) -> tuple[dict[str, Any] | None, str, float | None]:
+    if setup.status not in ("BUY", "SELL") or setup.stop is None or setup.target2 is None:
+        return None, "Tidak ada sinyal BUY/SELL aktif dengan level SL/TP.", None
+    return prepare_market_order(
+        setup.status,
+        symbol,
+        volume,
+        float(setup.stop),
+        float(setup.target2),
+        config,
+        deviation_points,
+        "ProRegimeConfluence",
+    )
+
+
+def prepare_manual_order(
+    direction: str,
+    symbol: str,
+    volume: float,
+    stop: float,
+    target: float,
+    config: Config,
+    deviation_points: int,
+) -> tuple[dict[str, Any] | None, str, float | None]:
+    return prepare_market_order(
+        direction,
+        symbol,
+        volume,
+        stop,
+        target,
+        config,
+        deviation_points,
+        "AtlasManual",
+    )
 
 
 def execute_auto_pilot_order(
@@ -3555,6 +3600,8 @@ def create_dashboard_server(
             with action_lock:
                 if self.path == "/api/order":
                     response, status_code = self._place_order(body)
+                elif self.path == "/api/manual-order":
+                    response, status_code = self._place_manual_order(body)
                 elif self.path == "/api/close-position":
                     response, status_code = self._close_position(body)
                 else:
@@ -3563,6 +3610,121 @@ def create_dashboard_server(
                         "message": "Endpoint tidak ditemukan.",
                     }, 404
             self._send_json(status_code, response)
+
+        def _place_manual_order(
+            self, body: dict[str, Any]
+        ) -> tuple[dict[str, Any], int]:
+            direction = body.get("direction")
+            if direction not in ("BUY", "SELL"):
+                return {"ok": False, "message": "Arah order manual tidak valid."}, 400
+            if body.get("confirm") != f"KIRIM MANUAL {direction}":
+                return {
+                    "ok": False,
+                    "message": "Konfirmasi order manual tidak cocok.",
+                }, 400
+
+            values: dict[str, float] = {}
+            for field in ("volume", "stop", "target"):
+                raw_value = body.get(field)
+                if isinstance(raw_value, bool):
+                    return {
+                        "ok": False,
+                        "message": f"Nilai {field} harus berupa angka yang valid.",
+                    }, 400
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    return {
+                        "ok": False,
+                        "message": f"Nilai {field} harus berupa angka yang valid.",
+                    }, 400
+                if not np.isfinite(value) or value <= 0:
+                    return {
+                        "ok": False,
+                        "message": f"Nilai {field} harus lebih besar dari 0.",
+                    }, 400
+                values[field] = value
+
+            with lock:
+                symbol = str(state.get("symbol", ""))
+                auto_pilot_enabled = bool(state["auto_pilot_enabled"])
+            if auto_pilot_enabled:
+                return {
+                    "ok": False,
+                    "message": "Matikan Auto Pilot sebelum mengirim order manual.",
+                }, 409
+
+            with MT5_API_LOCK:
+                try:
+                    current_spread = get_spread_points(symbol)
+                    if (
+                        config.max_spread_points > 0.0
+                        and current_spread > config.max_spread_points
+                    ):
+                        return {
+                            "ok": False,
+                            "message": (
+                                "Order diblokir karena spread saat ini melewati batas."
+                            ),
+                        }, 409
+                    request, detail, risk_percent = prepare_manual_order(
+                        direction,
+                        symbol,
+                        values["volume"],
+                        values["stop"],
+                        values["target"],
+                        config,
+                        deviation_points,
+                    )
+                    if request is None:
+                        return {"ok": False, "message": detail}, 409
+                    if risk_percent is None:
+                        return {
+                            "ok": False,
+                            "message": (
+                                "Estimasi risiko tidak tersedia; order dibatalkan."
+                            ),
+                        }, 409
+                    result = mt5.order_send(request)
+                except RuntimeError as error:
+                    return {"ok": False, "message": str(error)}, 503
+            if result is None:
+                return {
+                    "ok": False,
+                    "message": f"Order tidak memperoleh hasil: {mt5.last_error()}",
+                }, 503
+            if result.retcode not in {
+                mt5.TRADE_RETCODE_DONE,
+                mt5.TRADE_RETCODE_DONE_PARTIAL,
+            }:
+                return {
+                    "ok": False,
+                    "message": (
+                        f"Broker menolak order (retcode {result.retcode}): "
+                        f"{result.comment}. Tidak ada retry otomatis."
+                    ),
+                }, 409
+
+            with lock:
+                state["last_action"] = (
+                    f"Order manual {direction} diterima; ticket {result.order}, "
+                    f"estimasi risiko {risk_percent:.2f}% equity."
+                )
+            logging.warning(
+                "Dashboard mengirim order manual %s %s volume %s; order=%s deal=%s",
+                direction,
+                symbol,
+                values["volume"],
+                result.order,
+                result.deal,
+            )
+            return {
+                "ok": True,
+                "message": (
+                    f"Order manual {direction} diterima. Ticket {result.order}; "
+                    f"{detail}. Periksa posisi langsung pada MT5."
+                ),
+            }, 200
 
         def _update_chart_settings(
             self, body: dict[str, Any]

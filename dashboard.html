@@ -127,6 +127,8 @@
     .legend .entry { background: var(--blue); }
     .legend .stop { background: var(--red); }
     .legend .target { background: var(--green); }
+    .legend .buy-marker { color: var(--green); }
+    .legend .sell-marker { color: var(--red); }
     .legend .live-price-key { height: 0; border-top: 1px dashed var(--amber); background: none; }
     .legend .volume-key { height: 8px; background: #41d69a80; }
     .signal-card { padding: 20px; display: flex; flex-direction: column; }
@@ -175,6 +177,16 @@
     .action-button { border: 1px solid #34445b; border-radius: 7px; padding: 8px 11px;
       background: #1b2533; color: #dce8f8; cursor: pointer; font-size: 11px; font-weight: 650; }
     .action-button.primary { flex: 1; border-color: #31558a; background: #1d3c68; }
+    .manual-order-box { margin-top: 12px; padding-top: 11px; border-top: 1px solid #252e39; }
+    .manual-order-title { display: block; margin-bottom: 8px; color: #e2eaf5; font-size: 11px; }
+    .manual-order-levels, .manual-order-buttons { display: flex; gap: 8px; }
+    .manual-order-levels label { display: grid; flex: 1; gap: 4px; color: var(--muted); font-size: 10px; }
+    .manual-order-levels input { width: 100%; min-width: 0; border: 1px solid #303b4b;
+      border-radius: 7px; padding: 8px; background: #0c1118; color: var(--text); }
+    .manual-order-buttons { margin-top: 8px; }
+    .manual-order-buttons .action-button { flex: 1; }
+    .action-button.manual-buy { color: #8be0bb; border-color: #245a46; background: #12342580; }
+    .action-button.manual-sell { color: #ff9aa3; border-color: #673640; background: #351a2080; }
     .action-button.close { padding: 6px 9px; color: #ff9aa3; border-color: #61343c; background: #321b20; }
     .action-button:disabled { cursor: not-allowed; opacity: .42; }
     .small { font-size: 10px; }
@@ -458,6 +470,7 @@
         <div class="legend">
           <span><i class="candle"></i>OHLC</span><span><i></i>EMA cepat</span>
           <span><i class="slow"></i>EMA lambat</span><span><i class="entry"></i>Entry</span>
+          <span class="buy-marker">▲ BUY sinyal</span><span class="sell-marker">▼ SELL sinyal</span>
           <span><i class="stop"></i>SL</span><span><i class="target"></i>Target</span>
           <span><i class="live-price-key"></i>Bid live</span><span><i class="volume-key"></i>Tick volume</span>
         </div>
@@ -484,10 +497,28 @@
           <div class="order-controls">
             <input id="order-volume" type="number" min="0.01" step="0.01" value="0.01" inputmode="decimal">
             <button id="place-order" class="action-button primary" type="button" disabled>
-              Konfirmasi order
+              Order sesuai sinyal
             </button>
           </div>
-          <div id="order-hint" class="muted small">Order memerlukan sinyal valid dan aktivasi dari terminal.</div>
+          <div id="order-hint" class="muted small">Order sesuai sinyal memerlukan BUY/SELL valid dan aktivasi dari terminal.</div>
+          <div class="manual-order-box">
+            <strong class="manual-order-title">Open order manual · di luar aturan sinyal</strong>
+            <div class="manual-order-levels">
+              <label for="manual-stop">Stop loss wajib
+                <input id="manual-stop" type="number" min="0" step="any" inputmode="decimal" placeholder="Harga SL">
+              </label>
+              <label for="manual-target">Take profit wajib
+                <input id="manual-target" type="number" min="0" step="any" inputmode="decimal" placeholder="Harga TP">
+              </label>
+            </div>
+            <div class="manual-order-buttons">
+              <button id="manual-buy" class="action-button manual-buy" type="button" disabled>Open BUY manual</button>
+              <button id="manual-sell" class="action-button manual-sell" type="button" disabled>Open SELL manual</button>
+            </div>
+            <div id="manual-order-hint" class="muted small order-hint">
+              Wajib isi SL/TP. Risiko dibatasi sesuai batas konfigurasi; konfirmasi sebelum kirim.
+            </div>
+          </div>
         </div>
         <div id="autopilot-box" class="autopilot-box">
           <div class="autopilot-head">
@@ -1289,12 +1320,26 @@
       placeOrder.disabled = !data.actions_enabled || !hasTradeSignal ||
         signalAlreadyUsed || !data.account || !data.account.trade_allowed;
       placeOrder.textContent = signalAlreadyUsed ? "Order candle ini sudah dikirim"
-        : setup && setup.status === "SELL" ? "Konfirmasi order SELL" : "Konfirmasi order BUY";
+        : setup && setup.status === "SELL" ? "Order SELL sesuai sinyal"
+        : setup && setup.status === "BUY" ? "Order BUY sesuai sinyal" : "Order sesuai sinyal";
       $("order-hint").textContent = data.actions_enabled && data.account && data.account.trade_allowed
-        ? `Batas risiko keras: ${fmt(data.max_risk_percent, 2)}% equity. Lot manual; SL/TP dari setup; konfirmasi sebelum kirim.`
+        ? `Sinyal valid diperlukan. Batas risiko keras ${fmt(data.max_risk_percent, 2)}% equity; SL/TP dari setup.`
         : data.actions_enabled
           ? "Trading dinonaktifkan pada terminal atau akun MT5; order dan tutup posisi diblokir."
         : "Order dan penutupan posisi nonaktif. Aktifkan secara sadar dari terminal MT5.";
+      const manualOrdersEnabled = Boolean(
+        data.actions_enabled && data.account && data.account.trade_allowed &&
+        !data.auto_pilot_enabled
+      );
+      $("manual-buy").disabled = !manualOrdersEnabled;
+      $("manual-sell").disabled = !manualOrdersEnabled;
+      $("manual-order-hint").textContent = !data.actions_enabled
+        ? "Aktifkan order dari terminal MT5 untuk menggunakan entry manual."
+        : !data.account || !data.account.trade_allowed
+          ? "Trading dinonaktifkan pada terminal atau akun MT5."
+          : data.auto_pilot_enabled
+            ? "Matikan Auto Pilot sebelum mengirim order manual."
+            : `Bebas dari aturan sinyal; SL/TP wajib. Risiko maksimal ${fmt(data.max_risk_percent, 2)}% equity dan konfirmasi wajib.`;
       const autoPilotEnabled = Boolean(data.auto_pilot_enabled);
       $("telegram-enabled").checked = Boolean(data.telegram_enabled);
       $("telegram-bot-token").placeholder = data.telegram_configured
@@ -1578,6 +1623,16 @@
       const liveMarket = chartOffset === 0 && dashboardData && dashboardData.market;
       const livePrice = liveMarket ? Number(liveMarket.bid) : NaN;
       const prices = rows.flatMap(row => [row.high, row.low, row.ema_fast, row.ema_slow]);
+      const rowIndicesByTime = new Map(rows.map((row, index) => [Date.parse(row.time), index]));
+      const chartSignals = (dashboardData?.journal?.recent || [])
+        .filter(signal => signal.direction === "BUY" || signal.direction === "SELL")
+        .map(signal => ({
+          ...signal,
+          rowIndex: rowIndicesByTime.get(Date.parse(signal.bar_time)),
+          entry: Number(signal.entry_price)
+        }))
+        .filter(signal => signal.rowIndex != null && Number.isFinite(signal.entry));
+      prices.push(...chartSignals.map(signal => signal.entry));
       if (Number.isFinite(livePrice)) prices.push(livePrice);
       const levels = dashboardData && dashboardData.setup
         ? [dashboardData.setup.entry, dashboardData.setup.stop,
@@ -1645,6 +1700,28 @@
       };
       plotLine("ema_fast", "#73a9ff");
       plotLine("ema_slow", "#ae95ff");
+
+      chartSignals.forEach(signal => {
+        const row = rows[signal.rowIndex];
+        const center = left + xStep * (signal.rowIndex + .5);
+        const markerY = y(signal.entry);
+        const buy = signal.direction === "BUY";
+        const color = buy ? "#41d69a" : "#ff6b78";
+        const size = 5;
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(center, markerY + (buy ? size : -size));
+        ctx.lineTo(center - size, markerY + (buy ? -size : size));
+        ctx.lineTo(center + size, markerY + (buy ? -size : size));
+        ctx.closePath();
+        ctx.fill();
+        ctx.font = "bold 9px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = buy ? "top" : "bottom";
+        ctx.fillText(signal.direction, center, markerY + (buy ? size + 2 : -size - 2));
+        ctx.restore();
+      });
 
       const readoutRow = chartHoverIndex == null
         ? rows[rows.length - 1]
@@ -2055,6 +2132,31 @@
       $("place-order").disabled = true;
       await sendAction("/api/order", { volume, confirm: "KIRIM" });
     });
+    async function submitManualOrder(direction) {
+      if (!dashboardData) return;
+      const volume = Number($("order-volume").value);
+      const stop = Number($("manual-stop").value);
+      const target = Number($("manual-target").value);
+      if (![volume, stop, target].every(Number.isFinite) ||
+          volume <= 0 || stop <= 0 || target <= 0) {
+        showNotice("DITOLAK", "Isi volume, stop loss, dan take profit dengan angka positif.");
+        return;
+      }
+      const accepted = window.confirm(
+        `Kirim order MANUAL ${direction} ${dashboardData.symbol} ${volume} lot tanpa syarat sinyal?\n` +
+        `SL: ${fmt(stop, 5)}\nTP: ${fmt(target, 5)}\n` +
+        `Batas risiko keras: ${fmt(dashboardData.max_risk_percent, 2)}% equity.\n\n` +
+        "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
+      );
+      if (!accepted) return;
+      $("manual-buy").disabled = true;
+      $("manual-sell").disabled = true;
+      await sendAction("/api/manual-order", {
+        direction, volume, stop, target, confirm: `KIRIM MANUAL ${direction}`
+      });
+    }
+    $("manual-buy").addEventListener("click", () => submitManualOrder("BUY"));
+    $("manual-sell").addEventListener("click", () => submitManualOrder("SELL"));
     $("run-backtest").addEventListener("click", async () => {
       const button = $("run-backtest");
       const commission = Number($("backtest-commission").value);
