@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.vscode/
+__pycache__/
+*.py[cod]
+*.log
+*.sqlite3
+*.bin
+*.tmp
+*.ex5

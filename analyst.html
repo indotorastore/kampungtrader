@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0d12">
+  <title>Atlas | Analisis Mandiri</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font: 14px/1.5 Inter, "Segoe UI", system-ui, sans-serif;
+      --bg: #0a0d12;
+      --panel: #11161e;
+      --border: #252d39;
+      --muted: #8490a2;
+      --text: #e8edf5;
+      --green: #41d69a;
+      --red: #ff6b78;
+      --amber: #efba62;
+      --blue: #73a9ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: var(--text); background:
+      radial-gradient(ellipse at 15% -15%, #182235 0, transparent 45%), var(--bg); }
+    button, select { color: inherit; font: inherit; }
+    .shell { width: min(1400px, 100% - 40px); margin: 0 auto; }
+    header { border-bottom: 1px solid #1c232e; }
+    .topbar { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center;
+      border: 1px solid #4b78bb; border-radius: 11px; color: #a9c8ff; background: #182235; font-weight: 800; }
+    .brand-name { font-weight: 700; letter-spacing: .03em; }
+    .muted, .eyebrow { color: var(--muted); }
+    .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
+    .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .live.offline::before { background: var(--red); }
+    a, .nav-button { padding: 7px 10px; border: 1px solid #34445b; border-radius: 7px;
+      color: #dce8f8; background: #151b25; text-decoration: none; font-size: 11px; }
+    main { padding: 26px 0 40px; }
+    h1 { margin: 2px 0 0; font-size: clamp(23px, 4vw, 34px); letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 15px; }
+    .intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .intro p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .9fr); gap: 14px; }
+    .card { min-width: 0; padding: 17px; border: 1px solid var(--border); border-radius: 12px;
+      background: linear-gradient(150deg, #131923, #10151d 78%); }
+    .card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .quote-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+    .quote { padding: 12px; border: 1px solid #252e39; border-radius: 9px; background: #10151d; }
+    .label { color: var(--muted); font-size: 10px; }
+    .value { margin-top: 5px; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .subvalue { margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .recommendation { min-height: 215px; display: flex; flex-direction: column; justify-content: space-between; }
+    .recommendation.buy { border-color: #245a46; }
+    .recommendation.sell { border-color: #673640; }
+    .recommendation.watch { border-color: #31558a; }
+    .badge { display: inline-flex; padding: 5px 9px; border: 1px solid #465161; border-radius: 99px;
+      color: var(--muted); font-size: 10px; font-weight: 700; }
+    .badge.buy { color: var(--green); border-color: #245a46; }
+    .badge.sell { color: var(--red); border-color: #673640; }
+    .badge.watch { color: var(--blue); border-color: #31558a; }
+    .rec-title { margin: 15px 0 4px; font-size: 25px; font-weight: 750; letter-spacing: -.04em; }
+    .rec-note { min-height: 38px; color: var(--muted); font-size: 11px; }
+    .levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 14px; }
+    .level { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: #0d1219; }
+    .level strong { display: block; margin-top: 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .metric { padding: 10px; border: 1px solid #252e39; border-radius: 8px; background: #10151d; }
+    .metric strong { display: block; margin-top: 3px; font-size: 13px; }
+    .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 12px; }
+    .check { display: flex; justify-content: space-between; gap: 8px; padding: 8px 9px;
+      border: 1px solid #252e39; border-radius: 7px; color: var(--muted); font-size: 10px; }
+    .pass { color: var(--green); }
+    .fail { color: var(--red); }
+    .macro { grid-column: 1 / -1; order: -2; }
+    .ai-pipeline { grid-column: 1 / -1; }
+    .macro-data { grid-column: 1 / -1; order: -1; }
+    .ai-controls button:disabled { opacity: .5; cursor: not-allowed; }
+    .ai-status { margin-top: 8px; color: var(--muted); font-size: 10px; }
+    .ai-result { min-height: 60px; margin-top: 10px; padding: 16px 18px; border: 1px solid #252e39;
+      border-radius: 8px; color: #dce4ef; background: #0d1219; font-size: 12px; line-height: 1.7; }
+    .ai-result h3 { margin: 20px 0 8px; color: #a9c8ff; font-size: 14px; line-height: 1.4; }
+    .ai-result h3:first-child { margin-top: 0; }
+    .ai-result p { margin: 0 0 10px; }
+    .ai-result ul, .ai-result ol { margin: 5px 0 14px; padding-left: 22px; }
+    .ai-result li { margin: 4px 0; padding-left: 3px; }
+    .ai-result strong { color: #f1f5fb; font-weight: 700; }
+    .macro-tools { display: flex; align-items: center; gap: 8px; }
+    .macro-tools select { padding: 6px 8px; border: 1px solid #34445b; border-radius: 7px; background: #111720; font-size: 11px; }
+    .macro-meta { color: var(--muted); font-size: 10px; }
+    .table-wrap { max-height: 430px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #202834; vertical-align: top; }
+    th { position: sticky; top: 0; color: var(--muted); background: #111720; font-size: 10px; }
+    tr:last-child td { border-bottom: 0; }
+    .impact-high { color: var(--red); font-weight: 700; }
+    .impact-medium { color: var(--amber); }
+    .empty { padding: 16px; color: var(--muted); font-size: 11px; }
+    .disclaimer { margin: 12px 2px 0; color: var(--muted); font-size: 10px; }
+    @media (max-width: 850px) {
+      .grid { grid-template-columns: 1fr; }
+      .macro, .ai-pipeline { grid-column: auto; }
+      .macro-data { grid-column: auto; }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 24px, 620px); }
+      .topbar { min-height: 60px; }
+      .brand-sub { display: none; }
+      .intro { align-items: flex-start; flex-direction: column; }
+      .quote-grid, .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .macro-tools { align-items: flex-start; flex-direction: column; }
+      th, td { padding: 8px 7px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell topbar">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div><div class="brand-name">ATLAS <span class="muted">/ ANALISIS MANDIRI</span></div>
+          <div class="brand-sub muted">Macro data · AI analysis roadmap · market context</div></div>
+      </div>
+      <div class="top-actions">
+        <span id="connection" class="live offline">Menghubungkan terminal</span>
+        <a href="/">Dashboard utama</a>
+      </div>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="intro">
+      <div>
+        <div class="eyebrow">Macro intelligence workspace</div>
+        <h1 id="symbol">Menunggu MT5</h1>
+        <p id="context">Mengambil data kalender makro sebagai fondasi analisis AI tahap berikutnya.</p>
+      </div>
+      <span id="updated" class="macro-meta">Update —</span>
+    </section>
+
+    <section class="grid">
+      <article class="card macro">
+        <div class="card-heading">
+          <div><div class="eyebrow">Tahap 1 · pengumpulan data makro</div><h2>Kalender ekonomi</h2></div>
+          <div class="macro-tools">
+            <label for="impact-filter" class="label">Dampak</label>
+            <select id="impact-filter" aria-label="Filter dampak event">
+              <option value="all">Semua</option>
+              <option value="high">Tinggi</option>
+              <option value="medium">Sedang + tinggi</option>
+            </select>
+            <label><input id="relevant-only" type="checkbox" checked> Relevan dengan pair</label>
+            <button id="refresh-macro" class="nav-button" type="button">Muat ulang</button>
+          </div>
+        </div>
+        <div id="macro-meta" class="macro-meta">Memuat kalender gratis tanpa API key…</div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table>
+            <thead><tr><th>Waktu lokal</th><th>Negara</th><th>Event</th><th>Dampak</th><th>Aktual / Forecast / Sebelumnya</th></tr></thead>
+            <tbody id="macro-events"><tr><td colspan="5" class="empty">Memuat event…</td></tr></tbody>
+          </table>
+        </div>
+        <p class="disclaimer">
+          Sumber: Forex Factory public weekly calendar feed (fairEconomy). Feed publik gratis tanpa API key,
+          dapat berubah, tertunda, atau tidak tersedia. Data ini belum ditafsirkan oleh AI.
+        </p>
+      </article>
+
+      <article class="card macro-data">
+        <div class="card-heading">
+          <div><div class="eyebrow">Indikator resmi · FRED</div><h2>Data makro tambahan</h2></div>
+          <button id="refresh-macro-data" class="nav-button" type="button">Muat ulang data</button>
+        </div>
+        <div id="macro-data-meta" class="macro-meta">Mengambil data resmi tanpa API key…</div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table>
+            <thead><tr><th>Wilayah</th><th>Indikator</th><th>Terbaru</th><th>Perubahan</th><th>Tanggal observasi</th><th>Frekuensi</th></tr></thead>
+            <tbody id="macro-indicator-rows"><tr><td colspan="6" class="empty">Memuat indikator…</td></tr></tbody>
+          </table>
+        </div>
+        <p class="disclaimer">
+          Data dari FRED (Federal Reserve Bank of St. Louis), termasuk seri pemerintah AS dan OECD.
+          Yield bersifat harian; suku bunga kebijakan, CPI, pengangguran, dan yield UK dapat berfrekuensi bulanan
+          serta memiliki jeda rilis. Periksa tanggal observasi sebelum menafsirkan.
+        </p>
+      </article>
+
+      <article class="card ai-pipeline">
+        <div class="card-heading">
+          <div><div class="eyebrow">Gemini · analisis makro</div><h2>Insight makro</h2></div>
+          <span id="macro-ai-model" class="badge">Memuat model…</span>
+        </div>
+        <div class="ai-controls" style="grid-template-columns:auto 1fr">
+          <button id="run-macro-analysis" class="nav-button" type="button" disabled>Analisis makro dengan AI</button>
+          <span class="ai-status">Gemini menggunakan kalender ekonomi, indikator resmi, dan konteks pair. Analisis hanya berjalan saat diminta.</span>
+        </div>
+        <div id="macro-ai-status" class="ai-status" role="status">Memeriksa konfigurasi Gemini…</div>
+        <div id="macro-ai-result" class="ai-result" aria-live="polite">Hasil analisis AI akan tampil di sini.</div>
+        <p class="disclaimer">Konfigurasikan <code>GEMINI_API_KEY</code> dan <code>GEMINI_MODEL</code> di file .env pada folder Atlas, lalu restart monitor. Kuota dan biaya mengikuti akun Google Anda. File .env menyimpan key sebagai teks biasa; jangan bagikan file tersebut.</p>
+      </article>
+
+      <article class="card technical">
+        <div class="card-heading">
+          <div><div class="eyebrow">Terminal realtime</div><h2>Quote & indikator</h2></div>
+          <span id="timeframe" class="badge">—</span>
+        </div>
+        <div class="quote-grid">
+          <div class="quote"><div class="label">Bid</div><div id="bid" class="value">—</div></div>
+          <div class="quote"><div class="label">Ask</div><div id="ask" class="value">—</div></div>
+          <div class="quote"><div class="label">Spread</div><div id="spread" class="value">—</div><div class="subvalue">points broker</div></div>
+          <div class="quote"><div class="label">Tick UTC</div><div id="tick-time" class="value">—</div></div>
+        </div>
+        <div class="eyebrow" style="margin:17px 0 8px">Momentum & volatilitas</div>
+        <div class="metrics">
+          <div class="metric"><div class="label">RSI</div><strong id="rsi">—</strong></div>
+          <div class="metric"><div class="label">ADX</div><strong id="adx">—</strong></div>
+          <div class="metric"><div class="label">ATR</div><strong id="atr">—</strong></div>
+          <div class="metric"><div class="label">BB width</div><strong id="band-width">—</strong></div>
+          <div class="metric"><div class="label">MACD / signal</div><strong id="macd">—</strong></div>
+          <div class="metric"><div class="label">Stochastic %K</div><strong id="stochastic">—</strong></div>
+          <div class="metric"><div class="label">Rel. tick volume</div><strong id="relative-volume">—</strong></div>
+          <div class="metric"><div class="label">Trend / struktur</div><strong id="trend">—</strong></div>
+        </div>
+        <div id="checks" class="checks"></div>
+      </article>
+
+      <article id="recommendation" class="card recommendation">
+        <div>
+          <div class="card-heading">
+            <div><div class="eyebrow">Sinyal teknikal Atlas · bukan AI</div><h2>Setup candle tertutup</h2></div>
+            <span id="signal" class="badge">MENUNGGU</span>
+          </div>
+          <div id="rec-title" class="rec-title">Menunggu data MT5</div>
+          <div id="rec-note" class="rec-note">
+            Rekomendasi hanya informasional. Tidak ada order yang dikirim dari halaman analisis ini.
+          </div>
+        </div>
+        <div id="levels" class="levels"></div>
+        <p class="disclaimer">
+          Ini adalah evaluasi teknikal dari aturan Atlas, terpisah dari analisis makro AI yang belum tersedia.
+          Skor konfluensi bukan probabilitas profit. Halaman ini tidak mengirim order.
+        </p>
+      </article>
+    </section>
+  </main>
+  <script>
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const DASHBOARD_TOKEN = "__DASHBOARD_TOKEN__";
+    let latestStatus = null;
+    let calendarEvents = [];
+    let calendarUpdated = null;
+    let calendarError = null;
+    let macroAIConfigured = false;
+    let macroIndicators = [];
+    let macroDataPayload = null;
+
+    function fmt(value, digits = 2) {
+      if (value == null || !Number.isFinite(Number(value))) return "—";
+      return Number(value).toLocaleString("id-ID", { maximumFractionDigits: digits });
+    }
+
+    function setText(id, value) {
+      $(id).textContent = value == null || value === "" ? "—" : String(value);
+    }
+
+    function appendInlineMarkdown(parent, text) {
+      const tokens = /(\*\*[^*]+\*\*|__[^_]+__)/g;
+      let lastIndex = 0;
+      for (const match of text.matchAll(tokens)) {
+        if (match.index > lastIndex) {
+          parent.append(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        const strong = document.createElement("strong");
+        strong.textContent = match[0].slice(2, -2);
+        parent.append(strong);
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) {
+        parent.append(document.createTextNode(text.slice(lastIndex)));
+      }
+    }
+
+    function renderMacroAIResult(markdown) {
+      const container = $("macro-ai-result");
+      container.replaceChildren();
+      let list = null;
+      let listType = null;
+      let paragraph = [];
+      const flushParagraph = () => {
+        if (!paragraph.length) return;
+        const element = document.createElement("p");
+        appendInlineMarkdown(element, paragraph.join(" "));
+        container.append(element);
+        paragraph = [];
+      };
+      const endList = () => {
+        list = null;
+        listType = null;
+      };
+
+      String(markdown || "").split(/\r?\n/).forEach(rawLine => {
+        const line = rawLine.trim();
+        if (!line || /^[-*_]{3,}$/.test(line)) {
+          flushParagraph();
+          endList();
+          return;
+        }
+        const heading = line.match(/^#{1,4}\s+(.+)$/);
+        if (heading) {
+          flushParagraph();
+          endList();
+          const element = document.createElement("h3");
+          appendInlineMarkdown(element, heading[1]);
+          container.append(element);
+          return;
+        }
+        const item = line.match(/^(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
+        if (item) {
+          flushParagraph();
+          const ordered = /^\d+[.)]\s+/.test(line);
+          const nextType = ordered ? "ol" : "ul";
+          if (!list || listType !== nextType) {
+            endList();
+            list = document.createElement(nextType);
+            listType = nextType;
+            container.append(list);
+          }
+          const element = document.createElement("li");
+          appendInlineMarkdown(element, item[1]);
+          list.append(element);
+          return;
+        }
+        endList();
+        paragraph.push(line);
+      });
+      flushParagraph();
+    }
+
+    function renderStatus(data) {
+      latestStatus = data;
+      const account = data.account;
+      const market = data.market;
+      const setup = data.setup;
+      const connected = Boolean(account?.connected && !data.error);
+      $("connection").textContent = connected ? "MT5 REALTIME" : "MT5 OFFLINE";
+      $("connection").classList.toggle("offline", !connected);
+      setText("symbol", data.symbol || "Menunggu MT5");
+      setText("context", `${data.strategy_mode === "scalping" ? "Scalping" : "Trend / Swing"} · ${data.timeframe || "—"} / ${data.higher_timeframe || "—"} · ${data.status || "Menunggu data"}`);
+      setText("updated", `Candle tertutup UTC · ${data.updated_at || "belum tersedia"}`);
+      macroAIConfigured = Boolean(data.macro_ai_configured);
+      $("run-macro-analysis").disabled = !macroAIConfigured;
+      $("macro-ai-model").textContent = data.macro_ai_model || "Gemini";
+      $("macro-ai-status").textContent = data.macro_ai_status || "Status Gemini tidak tersedia.";
+      if (data.macro_ai_last_result) renderMacroAIResult(data.macro_ai_last_result);
+      setText("timeframe", `${data.timeframe || "—"} / HTF ${data.higher_timeframe || "—"}`);
+      setText("bid", fmt(market?.bid, 5));
+      setText("ask", fmt(market?.ask, 5));
+      setText("spread", fmt(market?.spread_points, 1));
+      const tickDate = market?.tick_time ? new Date(market.tick_time) : null;
+      setText("tick-time", tickDate && !Number.isNaN(tickDate.getTime())
+        ? tickDate.toLocaleTimeString("id-ID", { timeZone: "UTC" }) : "—");
+
+      if (!setup) {
+        ["rsi", "adx", "atr", "band-width", "macd", "stochastic", "relative-volume", "trend"]
+          .forEach(id => setText(id, "—"));
+        $("checks").replaceChildren();
+        renderRecommendation(null, data.status || "Menunggu setup");
+        renderCalendar();
+        return;
+      }
+      setText("rsi", fmt(setup.rsi, 1));
+      setText("adx", fmt(setup.adx, 1));
+      setText("atr", fmt(setup.atr, 5));
+      setText("band-width", `${fmt(setup.band_width_percent, 2)}%`);
+      setText("macd", `${fmt(setup.macd, 4)} / ${fmt(setup.macd_signal, 4)}`);
+      setText("stochastic", fmt(setup.stochastic_k, 1));
+      setText("relative-volume", `${fmt(setup.relative_volume, 2)}×`);
+      setText("trend", `${setup.trend} · ${setup.structure}`);
+      renderChecks(setup.components || {});
+      renderRecommendation(setup, data.status);
+      renderCalendar();
+    }
+
+    function renderChecks(components) {
+      const container = $("checks");
+      container.replaceChildren();
+      Object.entries(components).forEach(([name, passed]) => {
+        const item = document.createElement("div");
+        item.className = "check";
+        const label = document.createElement("span");
+        label.textContent = name;
+        const result = document.createElement("strong");
+        result.textContent = passed ? "LULUS" : "BELUM";
+        result.className = passed ? "pass" : "fail";
+        item.append(label, result);
+        container.append(item);
+      });
+    }
+
+    function renderRecommendation(setup, status) {
+      const card = $("recommendation");
+      const badge = $("signal");
+      const isTrade = setup && (status === "BUY" || status === "SELL");
+      const isWatch = status === "WATCH BUY" || status === "WATCH SELL";
+      card.classList.toggle("buy", status === "BUY");
+      card.classList.toggle("sell", status === "SELL");
+      card.classList.toggle("watch", isWatch);
+      badge.className = `badge ${status === "BUY" ? "buy" : status === "SELL" ? "sell" : isWatch ? "watch" : ""}`;
+      badge.textContent = status || "MENUNGGU";
+      $("rec-title").textContent = isTrade
+        ? `${status} · skor ${setup.score}/100`
+        : isWatch ? "Pantauan awal — bukan order"
+        : "Belum ada rekomendasi BUY/SELL";
+      $("rec-note").textContent = isTrade
+        ? "Level dari analisis candle tertutup. Evaluasi event makro dan risiko sendiri; halaman ini tidak mengirim order."
+        : isWatch
+          ? "WATCH hanya konteks untuk dipantau dan tidak memicu order otomatis maupun manual."
+          : `${status || "Menunggu data MT5"}. Sinyal hanya muncul bila semua aturan setup terpenuhi.`;
+      const levels = $("levels");
+      levels.replaceChildren();
+      [["Entry", setup?.entry], ["Stop loss", setup?.stop], ["Target 1", setup?.target1], ["Target 2", setup?.target2]]
+        .forEach(([labelText, value]) => {
+          const item = document.createElement("div");
+          item.className = "level";
+          const label = document.createElement("div");
+          label.className = "label";
+          label.textContent = labelText;
+          const amount = document.createElement("strong");
+          amount.textContent = isTrade ? fmt(value, 5) : "—";
+          item.append(label, amount);
+          levels.append(item);
+        });
+    }
+
+    function pairCurrencies() {
+      const match = latestStatus?.symbol?.toUpperCase().match(/[A-Z]{6}/);
+      if (!match) return [];
+      const pair = match[0];
+      const currencies = [pair.slice(0, 3), pair.slice(3, 6)];
+      if (currencies.includes("XAU") || currencies.includes("XAG")) currencies.push("USD");
+      return currencies;
+    }
+
+    function renderCalendar() {
+      const tbody = $("macro-events");
+      tbody.replaceChildren();
+      const impact = $("impact-filter").value;
+      const relevantOnly = $("relevant-only").checked;
+      const relevant = pairCurrencies();
+      const events = calendarEvents.filter(event => {
+        const level = event.impact.toLowerCase();
+        if (impact === "high" && level !== "high") return false;
+        if (impact === "medium" && level !== "high" && level !== "medium") return false;
+        return !relevantOnly || event.country === "All" || relevant.includes(event.country);
+      });
+      if (!calendarUpdated && !calendarError) {
+        $("macro-meta").textContent = "Memuat kalender ekonomi…";
+      } else {
+        const refreshed = calendarUpdated
+          ? new Date(calendarUpdated).toLocaleString("id-ID") : "belum tersedia";
+        $("macro-meta").textContent = calendarError
+          ? `Feed gagal dimuat (${calendarError}); menampilkan cache bila ada. Pembaruan terakhir: ${refreshed}.`
+          : `${events.length} event ditampilkan · feed diperbarui ${refreshed}.`;
+      }
+      if (!events.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 5;
+        cell.className = "empty";
+        cell.textContent = calendarError && !calendarUpdated
+          ? "Kalender belum dapat dimuat. Periksa koneksi internet dan coba lagi."
+          : "Tidak ada event yang sesuai filter untuk pair ini.";
+        row.append(cell);
+        tbody.append(row);
+        return;
+      }
+      events.forEach(event => {
+        const row = document.createElement("tr");
+        const time = new Date(event.date);
+        const values = [
+          Number.isNaN(time.getTime()) ? event.date : time.toLocaleString("id-ID"),
+          event.country,
+          event.title,
+          event.impact,
+          `${event.actual || "—"} / ${event.forecast || "—"} / ${event.previous || "—"}`
+        ];
+        values.forEach((value, index) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          if (index === 3 && event.impact.toLowerCase() === "high") cell.className = "impact-high";
+          else if (index === 3 && event.impact.toLowerCase() === "medium") cell.className = "impact-medium";
+          row.append(cell);
+        });
+        tbody.append(row);
+      });
+    }
+
+    function renderMacroIndicators() {
+      const tbody = $("macro-indicator-rows");
+      tbody.replaceChildren();
+      if (!macroDataPayload) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.className = "empty";
+        cell.textContent = "Data indikator belum tersedia.";
+        row.append(cell);
+        tbody.append(row);
+        return;
+      }
+      const errors = Array.isArray(macroDataPayload.errors) ? macroDataPayload.errors : [];
+      const updated = macroDataPayload.updated_at
+        ? new Date(macroDataPayload.updated_at).toLocaleString("id-ID")
+        : "waktu pembaruan tidak tersedia";
+      $("macro-data-meta").textContent =
+        `${macroIndicators.length} indikator · terakhir diambil ${updated}` +
+        (errors.length ? ` · ${errors.length} seri gagal dimuat.` : "");
+      if (!macroIndicators.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.className = "empty";
+        cell.textContent = errors.length
+          ? errors.map(error => `${error.id}: ${error.message}`).join(" ")
+          : "Sumber tidak mengembalikan indikator.";
+        row.append(cell);
+        tbody.append(row);
+        return;
+      }
+      macroIndicators.forEach(indicator => {
+        const row = document.createElement("tr");
+        const latestValue = `${fmt(indicator.value, 4)} ${indicator.unit || ""}`.trim();
+        let changeText = "—";
+        if (indicator.inflation_yoy_percent != null) {
+          changeText = `Inflasi YoY ${fmt(indicator.inflation_yoy_percent, 2)}%`;
+        } else if (indicator.change != null) {
+          const sign = indicator.change > 0 ? "+" : "";
+          changeText = `${sign}${fmt(indicator.change, 4)} ${indicator.unit || ""}`.trim();
+        }
+        const observationAge = Number(indicator.stale_days);
+        const ageLabel = Number.isFinite(observationAge) && observationAge > 7
+          ? ` · ${observationAge} hari lalu`
+          : "";
+        const values = [
+          indicator.region,
+          indicator.label,
+          latestValue,
+          changeText,
+          `${indicator.observation_date || "—"}${ageLabel}`,
+          indicator.frequency || "—"
+        ];
+        values.forEach(value => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        });
+        tbody.append(row);
+      });
+    }
+
+    async function refreshStatus() {
+      try {
+        const response = await fetch("/api/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        renderStatus(await response.json());
+      } catch (error) {
+        $("connection").textContent = "MT5 OFFLINE";
+        $("connection").classList.add("offline");
+        $("context").textContent = `Data terminal tidak tersedia: ${error}`;
+      }
+    }
+
+    async function refreshCalendar(force = false) {
+      if (!force && calendarUpdated && Date.now() - new Date(calendarUpdated).getTime() < 15 * 60 * 1000) return;
+      $("refresh-macro").disabled = true;
+      try {
+        const response = await fetch("/api/macro-calendar", { cache: "no-store" });
+        const result = await response.json();
+        calendarEvents = Array.isArray(result.events) ? result.events : [];
+        calendarUpdated = result.updated_at || null;
+        calendarError = result.error || null;
+      } catch (error) {
+        calendarError = String(error);
+      } finally {
+        $("refresh-macro").disabled = false;
+        renderCalendar();
+      }
+    }
+
+    async function refreshMacroData(force = false) {
+      if (!force && macroDataPayload && Date.now() - new Date(macroDataPayload.updated_at).getTime() < 60 * 60 * 1000) return;
+      const button = $("refresh-macro-data");
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/macro-data", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        macroDataPayload = await response.json();
+        macroIndicators = Array.isArray(macroDataPayload.indicators)
+          ? macroDataPayload.indicators : [];
+      } catch (error) {
+        $("macro-data-meta").textContent = `Gagal memuat indikator makro: ${error.message}`;
+      } finally {
+        button.disabled = false;
+        renderMacroIndicators();
+      }
+    }
+
+    async function postAI(path) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Dashboard-Token": DASHBOARD_TOKEN
+        },
+        body: "{}"
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.message || `HTTP ${response.status}`);
+      return result;
+    }
+
+    $("run-macro-analysis").addEventListener("click", async () => {
+      const button = $("run-macro-analysis");
+      button.disabled = true;
+      $("macro-ai-status").textContent = "Mengirim data makro relevan ke Gemini…";
+      try {
+        const result = await postAI("/api/macro-analysis");
+        $("macro-ai-status").textContent =
+          `Analisis ${result.symbol} · ${result.events_analyzed} event · ${result.indicators_analyzed} indikator · ${new Date(result.updated_at).toLocaleString("id-ID")} · ${result.model}`;
+        renderMacroAIResult(result.analysis);
+      } catch (error) {
+        $("macro-ai-status").textContent = `Analisis gagal: ${error.message}`;
+      } finally {
+        button.disabled = !macroAIConfigured;
+      }
+    });
+
+    $("impact-filter").addEventListener("change", renderCalendar);
+    $("relevant-only").addEventListener("change", renderCalendar);
+    $("refresh-macro").addEventListener("click", () => refreshCalendar(true));
+    $("refresh-macro-data").addEventListener("click", () => refreshMacroData(true));
+    refreshStatus();
+    refreshCalendar(true);
+    refreshMacroData(true);
+    window.setInterval(refreshStatus, 1000);
+    window.setInterval(() => refreshCalendar(), 60 * 1000);
+    window.setInterval(() => refreshMacroData(), 5 * 60 * 1000);
+  </script>
+</body>
+</html>

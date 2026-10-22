@@ -1,0 +1,2082 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0d12">
+  <title>Atlas | MT5 Market Intelligence</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font: 14px/1.45 Inter, "Segoe UI", system-ui, sans-serif;
+      --bg: #0a0d12;
+      --panel: #11161e;
+      --panel-raised: #151b25;
+      --border: #252d39;
+      --muted: #8490a2;
+      --text: #e8edf5;
+      --green: #41d69a;
+      --red: #ff6b78;
+      --amber: #efba62;
+      --blue: #73a9ff;
+      --violet: #ae95ff;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: var(--text); background:
+      radial-gradient(ellipse at 15% -15%, #182235 0, transparent 45%), var(--bg); }
+    button { color: inherit; font: inherit; }
+    .shell { width: min(1500px, 100% - 48px); margin: 0 auto; }
+    .topbar { min-height: 74px; border-bottom: 1px solid #1c232e; }
+    .topbar-inner, .brand, .top-actions, .instrument-row, .section-heading,
+    .chart-tools, .legend, .signal-top, .row-between { display: flex; align-items: center; }
+    .topbar-inner { min-height: 74px; justify-content: space-between; gap: 20px; }
+    .brand { gap: 12px; }
+    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center;
+      border: 1px solid #4b78bb; border-radius: 11px; color: #a9c8ff;
+      background: linear-gradient(145deg, #1b3150, #151d2a); font-weight: 800; }
+    .brand-name { font-weight: 720; letter-spacing: .02em; }
+    .brand-sub, .muted, .eyebrow { color: var(--muted); }
+    .brand-sub { font-size: 11px; }
+    .top-actions { gap: 18px; }
+    .connection { display: flex; align-items: center; gap: 8px; color: #b3bfce; font-size: 12px; }
+    .live-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--green);
+      box-shadow: 0 0 12px #41d69a80; }
+    .live-dot.offline { background: var(--red); box-shadow: 0 0 12px #ff6b7880; }
+    .instrument-chip, .time-chip { padding: 7px 10px; border: 1px solid var(--border);
+      border-radius: 8px; background: #111720; color: #d8e2f0; font-size: 12px; }
+    .tf-select { padding: 7px 28px 7px 10px; border: 1px solid #34445b;
+      border-radius: 8px; background: #111720; color: #dce8f8; font: inherit; font-size: 12px; }
+    .symbol-form { display: inline-flex; align-items: center; gap: 5px; }
+    .symbol-input-wrap { position: relative; }
+    .symbol-input { width: 120px; padding: 7px 9px; border: 1px solid #34445b;
+      border-radius: 8px; background: #111720; color: #dce8f8; font: inherit; font-size: 12px; }
+    .symbol-suggestions { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+      width: max(100%, 180px); max-height: 240px; overflow-y: auto; padding: 4px;
+      border: 1px solid #34445b; border-radius: 8px; background: #111720;
+      box-shadow: 0 10px 24px #0009; }
+    .symbol-suggestions[hidden] { display: none; }
+    .symbol-suggestion { display: block; width: 100%; padding: 7px 9px; border: 0;
+      border-radius: 5px; background: transparent; color: #dce8f8; text-align: left;
+      font: inherit; font-size: 12px; cursor: pointer; }
+    .symbol-suggestion:hover, .symbol-suggestion:focus { outline: none; background: #1b2533; }
+    main { padding: 30px 0 36px; }
+    .instrument-row { justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+    h1 { margin: 0; font-size: clamp(20px, 3vw, 27px); letter-spacing: -.035em; }
+    .subtitle { margin-top: 5px; color: var(--muted); }
+    .row-right { display: flex; gap: 8px; flex-wrap: wrap; }
+    .card { min-width: 0; border: 1px solid var(--border); border-radius: 13px;
+      background: linear-gradient(150deg, #131923, #10151d 78%); }
+    .overview { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(290px, .72fr);
+      gap: 16px; align-items: stretch; }
+    .chart-card { padding: 18px 18px 12px; }
+    .section-heading { justify-content: space-between; gap: 12px; }
+    h2 { margin: 0; font-size: 14px; font-weight: 650; }
+    .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .chart-tools { gap: 5px; }
+    .chart-controls { display: flex; align-items: center; gap: 12px; }
+    .timeframe-tools { display: flex; align-items: center; gap: 2px; }
+    .timeframe-btn, .chart-expand {
+      border: 1px solid transparent; border-radius: 6px; padding: 5px 7px;
+      color: var(--muted); background: transparent; cursor: pointer; font-size: 11px;
+    }
+    .timeframe-btn:hover, .timeframe-btn.active, .chart-expand:hover {
+      border-color: #34445b; color: #dce8f8; background: #1b2533;
+    }
+    .timeframe-btn:disabled { display: none; }
+    .chart-expand { border-color: var(--border); font-size: 14px; line-height: 1; }
+    .live-follow { border: 1px solid #34445b; border-radius: 6px; padding: 5px 8px;
+      color: var(--muted); background: transparent; cursor: pointer; font-size: 10px; }
+    .live-follow.active { color: var(--green); border-color: #245a46; background: #12342580; }
+    .price-chart-wrap, .volume-chart-wrap { touch-action: none; }
+    #price-chart, #volume-chart { cursor: crosshair; }
+    #price-chart.dragging, #volume-chart.dragging { cursor: grabbing; }
+    .chart-card.expanded {
+      position: fixed; z-index: 10; inset: 12px; display: flex; flex-direction: column;
+      padding: 20px; background: #0c1118; box-shadow: 0 20px 80px #000b;
+    }
+    .chart-card.expanded .price-chart-wrap { flex: 1; min-height: 220px; }
+    .chart-card.expanded .volume-chart-wrap { height: 100px; flex: 0 0 100px; }
+    .range-btn { padding: 5px 8px; border: 1px solid transparent; border-radius: 6px;
+      color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
+    .range-btn:hover, .range-btn.active { border-color: #34445b; color: #dce8f8; background: #1b2533; }
+    .chart-summary { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 4px; }
+    .chart-price { font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+    .chart-time { color: var(--muted); font-size: 11px; }
+    .tick-status { display: inline-flex; align-items: center; gap: 5px; color: var(--green);
+      font-size: 10px; white-space: nowrap; }
+    .tick-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor; }
+    .tick-status.stale { color: var(--amber); }
+    .tick-status.offline { color: var(--red); }
+    .chart-readout { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto;
+      color: var(--muted); font: 10px ui-monospace, monospace; }
+    .chart-readout b { color: #dce8f8; font-weight: 500; }
+    .price-chart-wrap { position: relative; height: 285px; width: 100%; }
+    .volume-chart-wrap { position: relative; height: 72px; width: 100%;
+      border-top: 1px solid #1c2531; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .chart-tooltip { position: absolute; display: none; z-index: 2; padding: 7px 9px;
+      border: 1px solid #364252; border-radius: 7px; background: #0c1118ee;
+      color: #e7edf6; pointer-events: none; font: 11px/1.5 ui-monospace, monospace; }
+    .legend { flex-wrap: wrap; gap: 14px; padding: 7px 0 0; color: var(--muted); font-size: 10px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 13px; height: 2px; display: inline-block; background: var(--blue); }
+    .legend .slow { background: var(--violet); }
+    .legend .candle { height: 8px; width: 8px; border-radius: 2px; background: var(--green); }
+    .legend .entry { background: var(--blue); }
+    .legend .stop { background: var(--red); }
+    .legend .target { background: var(--green); }
+    .legend .live-price-key { height: 0; border-top: 1px dashed var(--amber); background: none; }
+    .legend .volume-key { height: 8px; background: #41d69a80; }
+    .signal-card { padding: 20px; display: flex; flex-direction: column; }
+    .signal-top { justify-content: space-between; gap: 10px; }
+    .signal-badge { border: 1px solid #6c5835; border-radius: 99px; padding: 5px 9px;
+      color: var(--amber); background: #34291866; font-size: 10px; font-weight: 700;
+      letter-spacing: .06em; }
+    .signal-badge.buy { color: var(--green); border-color: #245a46; background: #12342580; }
+    .signal-badge.sell { color: var(--red); border-color: #673640; background: #351a2080; }
+    .signal-badge.watch { color: var(--blue); border-color: #31558a; background: #182b4380; }
+    .signal-controls { display: flex; align-items: center; gap: 8px; }
+    .alert-toggle { border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px;
+      color: var(--muted); background: #111720; cursor: pointer; font-size: 10px; }
+    .alert-toggle.active { color: var(--green); border-color: #245a46; }
+    .signal-toast { position: fixed; z-index: 20; right: 18px; bottom: 18px; max-width: 360px;
+      padding: 13px 16px; border: 1px solid #31558a; border-radius: 10px;
+      background: #111a28; box-shadow: 0 12px 36px #0008; }
+    .signal-toast[hidden] { display: none; }
+    .signal-toast strong { display: block; margin-bottom: 3px; color: var(--blue); }
+    .signal-toast.sell strong { color: var(--red); }
+    .signal-toast.buy strong { color: var(--green); }
+    .signal-title { margin: 22px 0 3px; font-size: 25px; font-weight: 700; letter-spacing: -.04em; }
+    .signal-description { min-height: 34px; color: var(--muted); font-size: 12px; }
+    .score-row { display: flex; align-items: center; gap: 16px; margin: 20px 0 17px; }
+    .score-ring { flex: 0 0 82px; height: 82px; display: grid; place-items: center;
+      border-radius: 50%; background: conic-gradient(var(--blue) var(--score), #26303d 0);
+      position: relative; }
+    .score-ring::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #121821; }
+    .score-ring strong { z-index: 1; font-size: 21px; font-variant-numeric: tabular-nums; }
+    .score-copy strong { display: block; font-size: 13px; }
+    .score-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .divider { border: 0; border-top: 1px solid var(--border); margin: 2px 0 15px; }
+    .levels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .level { padding: 10px; border: 1px solid #252e39; border-radius: 8px; background: #10151d; }
+    .level-label { color: var(--muted); font-size: 10px; }
+    .level-value { margin-top: 5px; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .level.entry .level-value { color: var(--blue); }
+    .level.stop .level-value { color: var(--red); }
+    .level.tp .level-value { color: var(--green); }
+    .level-placeholder { grid-column: 1/-1; color: var(--muted); font-size: 12px; padding: 10px 0; }
+    .order-box { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+    .order-box label { color: var(--muted); font-size: 10px; }
+    .order-controls { display: flex; gap: 8px; margin-top: 6px; }
+    .order-controls input { width: 96px; min-width: 70px; border: 1px solid #303b4b;
+      border-radius: 7px; padding: 8px; background: #0c1118; color: var(--text); }
+    .action-button { border: 1px solid #34445b; border-radius: 7px; padding: 8px 11px;
+      background: #1b2533; color: #dce8f8; cursor: pointer; font-size: 11px; font-weight: 650; }
+    .action-button.primary { flex: 1; border-color: #31558a; background: #1d3c68; }
+    .action-button.close { padding: 6px 9px; color: #ff9aa3; border-color: #61343c; background: #321b20; }
+    .action-button:disabled { cursor: not-allowed; opacity: .42; }
+    .small { font-size: 10px; }
+    .order-hint { margin-top: 7px; }
+    #order-hint { display: block; margin-top: 7px; }
+    .autopilot-box { margin-top: 12px; padding: 11px; border: 1px solid #704c2a;
+      border-radius: 8px; background: #261d13; }
+    .autopilot-box.active { border-color: #8a3d45; background: #291719; }
+    .autopilot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .autopilot-title { font-size: 11px; font-weight: 700; }
+    .autopilot-status { color: #e4b86b; font-size: 10px; font-weight: 700; }
+    .autopilot-box.active .autopilot-status { color: #ff9aa3; }
+    .autopilot-detail { margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .autopilot-toggle { width: 100%; margin-top: 8px; border: 1px solid #79562d;
+      border-radius: 7px; padding: 9px; background: #392a18; color: #ffe3b0;
+      cursor: pointer; font-size: 11px; font-weight: 700; }
+    .autopilot-toggle.active { border-color: #8a3d45; background: #4a2026; color: #ffd5d8; }
+    .autopilot-toggle:disabled { cursor: not-allowed; opacity: .45; }
+    .autopilot-confirm { margin-top: 9px; }
+    .autopilot-confirm[hidden] { display: none; }
+    .autopilot-confirm label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+    .autopilot-confirm input { width: 100%; border: 1px solid #79562d; border-radius: 6px;
+      padding: 8px; background: #0c1118; color: var(--text); }
+    .autopilot-confirm-actions { display: flex; gap: 7px; margin-top: 7px; }
+    .autopilot-confirm-actions button { flex: 1; border: 1px solid #79562d; border-radius: 6px;
+      padding: 7px; background: #392a18; color: #ffe3b0; cursor: pointer; font-size: 10px; }
+    .autopilot-confirm-actions button:last-child { border-color: var(--border); background: #151b25; color: var(--text); }
+    .autopilot-settings { margin-top: 9px; border-top: 1px solid #604323; padding-top: 8px; }
+    .autopilot-settings summary { color: #ffe3b0; cursor: pointer; font-size: 10px; font-weight: 700; }
+    .autopilot-settings-fields { display: grid; gap: 8px; margin-top: 9px; }
+    .autopilot-settings-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+    .autopilot-settings-fields input { width: 100%; border: 1px solid #394454; border-radius: 6px;
+      padding: 8px; background: #0c1118; color: var(--text); }
+    .autopilot-settings-note { color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .autopilot-settings-save { width: 100%; border: 1px solid #79562d; border-radius: 6px;
+      padding: 8px; background: #392a18; color: #ffe3b0; cursor: pointer; font-size: 10px; font-weight: 700; }
+    .autopilot-settings-save:disabled { cursor: not-allowed; opacity: .45; }
+    .account-card, .positions-card { margin-top: 16px; padding: 19px; }
+    .journal-card { margin-top: 16px; padding: 19px; }
+    .journal-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px; margin: 14px 0; }
+    .journal-backtest { margin-top: 16px; padding-top: 15px; border-top: 1px solid var(--border); }
+    .backtest-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .backtest-controls select { border: 1px solid #303b4b; border-radius: 7px;
+      padding: 8px; background: #0c1118; color: var(--text); }
+    .backtest-cost-input { width: 86px; border: 1px solid #303b4b; border-radius: 7px;
+      padding: 8px; background: #0c1118; color: var(--text); }
+    .backtest-controls label { color: var(--muted); font-size: 10px; }
+    .backtest-status { color: var(--muted); font-size: 10px; }
+    .backtest-assumptions { margin: 8px 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+    .backtest-period { margin-top: 14px; }
+    .backtest-period h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; }
+    .backtest-empty { margin: 0 0 9px; padding: 11px 12px; border: 1px solid var(--border);
+      border-radius: 8px; color: var(--muted); background: #10151d; font-size: 11px; }
+    #backtest-summary { display: block; }
+    .backtest-period-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .journal-horizon { padding: 12px; border: 1px solid var(--border);
+      border-radius: 9px; background: #10151d; }
+    .journal-horizon h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .journal-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+    .journal-metric span { display: block; color: var(--muted); font-size: 9px; }
+    .journal-metric strong { display: block; margin-top: 2px; font-size: 12px;
+      font-variant-numeric: tabular-nums; }
+    .journal-note { margin: 10px 0; color: var(--muted); font-size: 10px; }
+    .journal-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .journal-table th, .journal-table td { padding: 8px 9px; border-bottom: 1px solid #202834;
+      text-align: left; white-space: nowrap; }
+    .journal-table th { color: var(--muted); font-size: 9px; font-weight: 600; }
+    .journal-table td { font-variant-numeric: tabular-nums; }
+    .journal-table .side-buy { color: var(--green); }
+    .journal-table .side-sell { color: var(--red); }
+    .journal-empty { padding: 14px 9px; color: var(--muted); text-align: center; }
+    .account-head-right { display: flex; align-items: center; gap: 10px; }
+    .mode-pill { padding: 5px 8px; border: 1px solid #245a46; border-radius: 99px;
+      color: var(--green); background: #12342580; font-size: 10px; font-weight: 700; }
+    .mode-pill.live { color: var(--red); border-color: #673640; background: #351a2080; }
+    .mode-pill.offline { color: var(--amber); border-color: #6c5835; background: #34291866; }
+    .account-grid { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px; }
+    .account-stat { padding: 12px; border: 1px solid #252e39; border-radius: 9px; background: #10151d; }
+    .account-label { color: var(--muted); font-size: 10px; }
+    .account-value { margin-top: 5px; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .account-value.positive { color: var(--green); }
+    .account-value.negative { color: var(--red); }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .account-empty { grid-column: 1/-1; color: var(--muted); padding: 8px 0; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 11px; }
+    th { padding: 10px 9px; border-bottom: 1px solid #303946; color: var(--muted);
+      text-align: left; font-size: 10px; font-weight: 600; }
+    td { padding: 11px 9px; border-bottom: 1px solid #202833; font-variant-numeric: tabular-nums; }
+    .side-buy { color: var(--green); font-weight: 700; }
+    .side-sell { color: var(--red); font-weight: 700; }
+    .empty-cell { padding: 22px 9px; color: var(--muted); text-align: center; }
+    .table-note { margin-top: 10px; }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px; margin: 16px 0; }
+    .stat-card { padding: 15px 16px; }
+    .stat-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .stat-icon { display: grid; place-items: center; width: 25px; height: 25px;
+      border-radius: 7px; color: var(--blue); background: #1c2a3e; font-size: 12px; }
+    .stat-value { margin-top: 11px; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .stat-foot { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .live-price { display: flex; align-items: baseline; gap: 9px; }
+    .live-price .price { font-size: 25px; font-weight: 680; font-variant-numeric: tabular-nums; }
+    .live-price .change { font-size: 11px; }
+    .flash { animation: flash .35s ease; }
+    @keyframes flash { 50% { color: #fff; text-shadow: 0 0 12px #73a9ff; } }
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+      gap: 16px; }
+    .lower-card { padding: 19px; }
+    .card-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 18px; }
+    .heading-note { color: var(--muted); font-size: 10px; }
+    .check-list { display: grid; gap: 13px; }
+    .check-row { display: grid; grid-template-columns: 142px minmax(40px,1fr) 36px;
+      align-items: center; gap: 12px; }
+    .check-name { color: #c8d1de; font-size: 11px; }
+    .bar-track { height: 6px; overflow: hidden; border-radius: 99px; background: #252d38; }
+    .bar-fill { height: 100%; border-radius: inherit; background: var(--blue); transition: width .3s ease; }
+    .bar-fill.off { background: #46515f; }
+    .check-value { text-align: right; color: var(--muted); font-size: 10px; }
+    .regime-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .regime-item { padding: 12px; border: 1px solid #252e39; border-radius: 9px; background: #10151d; }
+    .regime-label { color: var(--muted); font-size: 10px; }
+    .regime-value { margin-top: 5px; font-size: 13px; font-weight: 600; }
+    .feed-card { margin-top: 16px; padding: 18px 19px; }
+    .feed-note { color: var(--muted); font-size: 11px; }
+    .notice { display: flex; gap: 10px; align-items: flex-start; margin-top: 15px;
+      padding: 12px; border: 1px solid #3f3728; border-radius: 9px; background: #29231655;
+      color: #c7b994; font-size: 11px; }
+    .notice b { color: var(--amber); }
+    .telegram-settings-button { padding: 7px 10px; border: 1px solid #34445b;
+      border-radius: 7px; background: #151b25; color: #dce8f8; cursor: pointer; font-size: 11px; }
+    .telegram-dialog { width: min(520px, calc(100% - 28px)); max-height: min(80vh, 620px);
+      margin: auto; padding: 0; overflow: auto; border: 1px solid #34445b;
+      border-radius: 13px; background: #11161e; color: var(--text);
+      box-shadow: 0 24px 80px #000b; }
+    .telegram-dialog::backdrop { background: #05080dcc; backdrop-filter: blur(3px); }
+    .telegram-dialog-inner { padding: 20px; }
+    .telegram-dialog-head { display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; margin-bottom: 14px; }
+    .telegram-dialog-head h2 { margin-top: 3px; font-size: 17px; }
+    .telegram-dialog-close { width: 30px; height: 30px; border: 1px solid var(--border);
+      border-radius: 7px; background: #151b25; color: var(--text); cursor: pointer; }
+    .telegram-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px; margin-top: 10px; }
+    .telegram-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+    .telegram-fields input[type="password"], .telegram-fields input[type="text"] {
+      width: 100%; padding: 8px 9px; border: 1px solid #34445b; border-radius: 7px;
+      background: #111720; color: var(--text); font: inherit; font-size: 11px;
+    }
+    .telegram-toggle { display: flex !important; grid-column: 1 / -1; grid-template-columns: auto 1fr;
+      align-items: center; justify-content: start; }
+    .telegram-actions { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 8px; }
+    .telegram-status, .telegram-help { grid-column: 1 / -1; color: var(--muted); font-size: 10px; }
+    footer { padding: 17px 2px 3px; color: #738093; font-size: 10px; line-height: 1.7; }
+    @media (max-width: 1000px) {
+      .overview { grid-template-columns: minmax(0,1.5fr) minmax(270px,.8fr); }
+      .stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    }
+    @media (max-width: 740px) {
+      .shell { width: min(100% - 28px, 620px); }
+      .topbar-inner { min-height: 64px; }
+      .brand-sub, .connection span:last-child { display: none; }
+      main { padding-top: 22px; }
+      .overview, .lower-grid { grid-template-columns: 1fr; }
+      .account-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .journal-summary { grid-template-columns: 1fr; }
+      .backtest-period-grid { grid-template-columns: 1fr; }
+      .instrument-row { align-items: flex-start; flex-direction: column; }
+      .price-chart-wrap { height: 245px; }
+      .volume-chart-wrap { height: 64px; }
+      .chart-readout { margin-left: 0; }
+      .chart-controls { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .timeframe-tools { flex-wrap: wrap; }
+      .chart-card.expanded { inset: 0; border-radius: 0; }
+      .stats { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+      .stat-card { padding: 12px; }
+    }
+    @media (max-width: 400px) {
+      .check-row { grid-template-columns: 116px minmax(30px,1fr) 30px; gap: 8px; }
+      .chart-tools { gap: 0; }
+      .range-btn { padding: 5px 6px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div><div class="brand-name">ATLAS <span class="muted">/ MARKET INTELLIGENCE</span></div>
+          <div class="brand-sub">MT5 local analytics terminal</div></div>
+      </div>
+      <div class="top-actions">
+        <div class="connection"><i id="live-dot" class="live-dot"></i><span id="connection">MENGHUBUNGKAN</span></div>
+        <a class="telegram-settings-button" href="/analyst">Analisis Mandiri</a>
+        <button id="telegram-settings-open" class="telegram-settings-button" type="button">
+          Pengaturan Telegram
+        </button>
+        <span id="instrument-chip" class="instrument-chip">MT5</span>
+      </div>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="instrument-row">
+      <div>
+        <div class="eyebrow">Market overview</div>
+        <h1 id="page-title">Menunggu koneksi terminal</h1>
+        <div id="page-subtitle" class="subtitle">Mengambil data market dan setup terakhir.</div>
+      </div>
+      <div class="row-right">
+        <div class="symbol-form">
+          <label class="time-chip" for="symbol-input">Pair MT5</label>
+          <div class="symbol-input-wrap">
+            <input id="symbol-input" class="symbol-input" type="text" maxlength="64"
+              autocomplete="off" autocapitalize="off" spellcheck="false"
+              placeholder="Ketik simbol" aria-label="Ketik simbol MT5">
+            <div id="symbol-suggestions" class="symbol-suggestions" role="listbox" hidden></div>
+          </div>
+        </div>
+        <label class="time-chip" for="strategy-mode">Mode</label>
+        <select id="strategy-mode" class="tf-select" aria-label="Pilih mode strategi">
+          <option value="trend">Trend / Swing</option>
+          <option value="scalping">Scalping</option>
+        </select>
+        <label class="time-chip" for="higher-timeframe">Konfirmasi</label>
+        <select id="higher-timeframe" class="tf-select" aria-label="Pilih timeframe konfirmasi"></select>
+        <span id="updated-chip" class="time-chip">Belum diperbarui</span>
+      </div>
+    </section>
+    <div id="strategy-hint" class="journal-note">
+      Scalping disarankan memakai chart M1/M5 dengan konfirmasi M5/M15.
+      Mode hanya mengubah preset indikator dan level; timeframe yang dipilih tidak diubah otomatis.
+    </div>
+
+    <section class="overview">
+      <article class="card chart-card">
+        <div class="section-heading">
+          <div><div class="eyebrow">MT5 · <span id="chart-symbol">LIVE</span></div><h2>Grafik Harga</h2></div>
+          <div class="chart-controls">
+            <div class="timeframe-tools" aria-label="Timeframe chart">
+              <button class="timeframe-btn" data-timeframe="M1">M1</button>
+              <button class="timeframe-btn" data-timeframe="M5">M5</button>
+              <button class="timeframe-btn" data-timeframe="M15">M15</button>
+              <button class="timeframe-btn" data-timeframe="M30">M30</button>
+              <button class="timeframe-btn" data-timeframe="H1">H1</button>
+              <button class="timeframe-btn" data-timeframe="H4">H4</button>
+              <button class="timeframe-btn" data-timeframe="D1">D1</button>
+              <select id="chart-timeframe" class="tf-select" aria-label="Pilih timeframe chart"></select>
+            </div>
+            <div class="chart-tools" aria-label="Jumlah candle">
+              <button class="range-btn" data-range="80">80</button>
+              <button class="range-btn active" data-range="160">160</button>
+              <button class="range-btn" data-range="240">240</button>
+            </div>
+            <button id="live-follow" class="live-follow active" type="button"
+              aria-pressed="true" title="Ikuti candle terbaru">LIVE</button>
+            <button id="chart-expand" class="chart-expand" type="button" aria-label="Perbesar chart"
+              aria-pressed="false" title="Perbesar chart">⛶</button>
+          </div>
+        </div>
+        <div class="chart-summary">
+          <div class="live-price">
+            <div id="chart-price" class="price">—</div>
+            <div id="price-change" class="change muted">BID — · ASK —</div>
+          </div>
+          <div id="chart-time" class="chart-time">Menunggu candle tertutup</div>
+          <span id="tick-freshness" class="tick-status">TICK —</span>
+          <div class="chart-readout" aria-live="polite">
+            <span>O <b id="ohlc-open">—</b></span><span>H <b id="ohlc-high">—</b></span>
+            <span>L <b id="ohlc-low">—</b></span><span>C <b id="ohlc-close">—</b></span>
+          </div>
+        </div>
+        <div class="price-chart-wrap">
+          <canvas id="price-chart" aria-label="Grafik candlestick MT5 dengan harga bid real-time dan EMA"></canvas>
+          <div id="chart-tooltip" class="chart-tooltip"></div>
+        </div>
+        <div class="volume-chart-wrap">
+          <canvas id="volume-chart" aria-label="Grafik tick volume per candle"></canvas>
+        </div>
+        <div class="legend">
+          <span><i class="candle"></i>OHLC</span><span><i></i>EMA cepat</span>
+          <span><i class="slow"></i>EMA lambat</span><span><i class="entry"></i>Entry</span>
+          <span><i class="stop"></i>SL</span><span><i class="target"></i>Target</span>
+          <span><i class="live-price-key"></i>Bid live</span><span><i class="volume-key"></i>Tick volume</span>
+        </div>
+      </article>
+
+      <article class="card signal-card">
+        <div class="signal-top"><div class="eyebrow">Latest setup</div>
+          <div class="signal-controls">
+            <button id="alert-toggle" class="alert-toggle" type="button" aria-pressed="false"
+              title="Minta izin notifikasi setup baru">Alert mati</button>
+            <div id="signal-badge" class="signal-badge">NO TRADE</div>
+          </div></div>
+        <div id="signal-title" class="signal-title">Menunggu data</div>
+        <div id="signal-description" class="signal-description">Sinyal dihitung setelah candle tertutup.</div>
+        <div class="score-row">
+          <div id="score-ring" class="score-ring" style="--score: 0%"><strong id="score">—</strong></div>
+          <div class="score-copy"><strong>Skor konfluensi</strong>
+            <span>Skor aturan, bukan peluang profit.</span><span id="direction-scores">BUY — / SELL —</span></div>
+        </div>
+        <hr class="divider">
+        <div id="levels" class="levels"></div>
+        <div class="order-box">
+          <label for="order-volume">Volume (lot)</label>
+          <div class="order-controls">
+            <input id="order-volume" type="number" min="0.01" step="0.01" value="0.01" inputmode="decimal">
+            <button id="place-order" class="action-button primary" type="button" disabled>
+              Konfirmasi order
+            </button>
+          </div>
+          <div id="order-hint" class="muted small">Order memerlukan sinyal valid dan aktivasi dari terminal.</div>
+        </div>
+        <div id="autopilot-box" class="autopilot-box">
+          <div class="autopilot-head">
+            <span class="autopilot-title">Auto Pilot · order otomatis</span>
+            <span id="autopilot-status" class="autopilot-status">OFF</span>
+          </div>
+          <div id="autopilot-detail" class="autopilot-detail">
+            Saat aktif, aplikasi dapat mengirim order MT5 sungguhan. Aktifkan dengan sadar setiap sesi.
+          </div>
+          <button id="autopilot-toggle" class="autopilot-toggle" type="button" disabled>
+            Auto Pilot tidak tersedia
+          </button>
+          <form id="autopilot-confirm" class="autopilot-confirm" hidden>
+            <label for="autopilot-confirm-input">Ketik persis AKTIFKAN AUTO PILOT untuk mengonfirmasi:</label>
+            <input id="autopilot-confirm-input" type="text" autocomplete="off" spellcheck="false">
+            <div class="autopilot-confirm-actions">
+              <button type="submit">Konfirmasi aktivasi</button>
+              <button id="autopilot-cancel" type="button">Batal</button>
+            </div>
+          </form>
+          <details id="autopilot-settings" class="autopilot-settings">
+            <summary>Settings Auto Pilot</summary>
+            <form id="autopilot-settings-form" class="autopilot-settings-fields">
+              <label for="auto-risk-setting">Risiko maksimum per order (%)</label>
+              <input id="auto-risk-setting" type="number" min="0.01" max="10" step="0.01"
+                inputmode="decimal" required>
+              <label for="daily-loss-setting">Batas rugi harian UTC (%)</label>
+              <input id="daily-loss-setting" type="number" min="0.01" max="10" step="0.01"
+                inputmode="decimal" required>
+              <div class="autopilot-settings-note">
+                Berlaku hanya sampai monitor dimulai ulang. Batas maksimum masing-masing 10%;
+                nilai tinggi dapat menyebabkan kerugian besar. Auto Pilot harus OFF untuk menyimpan.
+                Batas harian menghentikan order baru, tetapi tidak menutup posisi yang sudah terbuka.
+              </div>
+              <button class="autopilot-settings-save" type="submit">Simpan untuk sesi ini</button>
+            </form>
+          </details>
+        </div>
+      </article>
+    </section>
+
+      <section class="card account-card">
+        <div class="card-heading">
+          <div><div class="eyebrow">Broker connection</div><h2>Akun & margin</h2></div>
+          <div class="account-head-right">
+            <span id="account-mode" class="mode-pill">MEMUAT</span>
+            <span id="account-server" class="feed-note">Terminal MT5</span>
+          </div>
+        </div>
+        <div id="account-grid" class="account-grid">
+          <div class="account-empty">Menunggu informasi akun dari MT5…</div>
+        </div>
+      </section>
+
+      <section class="card positions-card">
+        <div class="card-heading">
+          <div><div class="eyebrow">Exposure monitor</div><h2>Posisi terbuka</h2></div>
+          <span id="position-count" class="feed-note">0 posisi</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Ticket / instrumen</th><th>Arah</th><th>Volume</th>
+              <th>Harga buka</th><th>Harga kini</th><th>SL / TP</th>
+              <th>Floating P/L</th><th>Tindakan</th>
+            </tr></thead>
+            <tbody id="positions-body">
+              <tr><td colspan="8" class="empty-cell">Belum ada posisi terbuka.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="small muted table-note">Tombol tutup hanya berlaku untuk posisi yang dipilih dan meminta konfirmasi.</div>
+      </section>
+
+      <section class="stats" aria-label="Market metrics">
+      <article class="card stat-card"><div class="stat-head">RSI <span id="rsi-period">14</span> <span class="stat-icon">R</span></div>
+        <div id="rsi" class="stat-value">—</div><div id="rsi-foot" class="stat-foot">Momentum</div></article>
+      <article class="card stat-card"><div class="stat-head">ADX <span class="stat-icon">A</span></div>
+        <div id="adx" class="stat-value">—</div><div id="adx-foot" class="stat-foot">Kekuatan tren</div></article>
+      <article class="card stat-card"><div class="stat-head">ATR <span id="atr-period"></span> <span class="stat-icon">V</span></div>
+        <div id="atr" class="stat-value">—</div><div class="stat-foot">Volatilitas harga</div></article>
+      <article class="card stat-card"><div class="stat-head">BB WIDTH <span class="stat-icon">B</span></div>
+        <div id="band-width" class="stat-value">—</div><div class="stat-foot">Rentang volatilitas</div></article>
+      <article class="card stat-card"><div class="stat-head">SPREAD <span class="stat-icon">↔</span></div>
+        <div id="spread" class="stat-value">—</div><div class="stat-foot">Points broker</div></article>
+      <article class="card stat-card"><div class="stat-head">MACD 12/26/9 <span class="stat-icon">M</span></div>
+        <div id="macd" class="stat-value">—</div><div id="macd-foot" class="stat-foot">Garis / signal</div></article>
+      <article class="card stat-card"><div class="stat-head">STOCHASTIC %K <span class="stat-icon">S</span></div>
+        <div id="stochastic" class="stat-value">—</div><div id="stochastic-foot" class="stat-foot">Momentum 14</div></article>
+    </section>
+
+    <section class="card journal-card">
+      <div class="card-heading">
+        <div><div class="eyebrow">Forward test · lokal</div><h2>Jurnal & hasil sinyal</h2></div>
+        <span id="journal-count" class="feed-note">0 sinyal</span>
+      </div>
+      <div id="journal-summary" class="journal-summary"></div>
+      <div class="journal-note">
+        Forward journal memakai close candle sinyal sebagai entry referensi dan close candle
+        setelah horizon 1/3/5 sebagai exit. Net points mengurangi spread saat sinyal;
+        R memakai jarak entry ke stop.
+        Backtest historis di bawah memakai entry open candle berikutnya.
+      </div>
+      <div class="table-wrap">
+        <table class="journal-table">
+          <thead><tr>
+            <th>Waktu / timeframe</th><th>Arah</th><th>Skor</th><th>Entry</th>
+            <th>Net 1 bar</th><th>Net 3 bar</th><th>Net 5 bar</th>
+          </tr></thead>
+          <tbody id="journal-body">
+            <tr><td colspan="7" class="journal-empty">Belum ada setup BUY/SELL yang tercatat.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="journal-backtest">
+        <div class="card-heading">
+          <div><div class="eyebrow">Historical research · lokal</div><h2>Backtest historis</h2></div>
+          <div class="backtest-controls">
+            <select id="backtest-bars" aria-label="Jumlah candle backtest">
+              <option value="300">300 candle</option>
+              <option value="500" selected>500 candle</option>
+              <option value="1000">1.000 candle</option>
+              <option value="2000">2.000 candle</option>
+              <option value="3000">3.000 candle</option>
+            </select>
+            <label for="backtest-commission">Komisi round-turn (pt)</label>
+            <input id="backtest-commission" class="backtest-cost-input" type="number"
+              min="0" max="10000" step="0.1" value="0" aria-label="Komisi round-turn dalam points">
+            <label for="backtest-slippage">Slippage per sisi (pt)</label>
+            <input id="backtest-slippage" class="backtest-cost-input" type="number"
+              min="0" max="10000" step="0.1" value="0" aria-label="Slippage per sisi dalam points">
+            <button id="run-backtest" class="action-button">Jalankan backtest</button>
+            <span id="backtest-status" class="backtest-status">Belum dijalankan</span>
+          </div>
+        </div>
+        <div id="backtest-summary" class="journal-summary"></div>
+        <p id="backtest-note" class="backtest-assumptions">
+          Entry pada open candle berikutnya; exit pada SL, TP2, atau batas horizon.
+          Jika SL dan TP2 tersentuh pada candle sama, asumsi konservatif memilih SL.
+          Komisi dan slippage adalah input points; backtest tidak mengirim order.
+        </p>
+      </div>
+    </section>
+
+    <section class="lower-grid">
+      <article class="card lower-card">
+        <div class="card-heading"><div><div class="eyebrow">Rule transparency</div><h2>Confluence breakdown</h2></div>
+          <span id="breakdown-score" class="heading-note">0 / 100</span></div>
+        <div id="checks" class="check-list"></div>
+      </article>
+      <article class="card lower-card">
+        <div class="card-heading"><div><div class="eyebrow">Market context</div><h2>Regime & structure</h2></div></div>
+        <div class="regime-grid">
+          <div class="regime-item"><div class="regime-label">Tren multi-timeframe</div>
+            <div id="trend" class="regime-value">—</div></div>
+          <div class="regime-item"><div class="regime-label">Struktur terakhir</div>
+            <div id="structure" class="regime-value">—</div></div>
+          <div class="regime-item"><div class="regime-label">Relatif tick volume</div>
+            <div id="relative-volume" class="regime-value">—</div></div>
+          <div class="regime-item"><div class="regime-label">Kondisi filter</div>
+            <div id="filters" class="regime-value">—</div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="card feed-card">
+      <div class="card-heading"><div><div class="eyebrow">Execution policy</div><h2>Monitoring aktif · Order otomatis nonaktif</h2></div>
+        <span class="feed-note">Candle tertutup saja</span></div>
+      <div id="notice" class="notice"><b>INFO</b><span>Menunggu data dari terminal MT5.</span></div>
+    </section>
+    <dialog id="telegram-dialog" class="telegram-dialog" aria-labelledby="telegram-dialog-title">
+      <div class="telegram-dialog-inner">
+        <div class="telegram-dialog-head">
+          <div>
+            <div class="eyebrow">Integrasi notifikasi</div>
+            <h2 id="telegram-dialog-title">Telegram bot</h2>
+          </div>
+          <button id="telegram-settings-close" class="telegram-dialog-close" type="button"
+            aria-label="Tutup pengaturan Telegram">×</button>
+        </div>
+        <form id="telegram-settings-form" class="telegram-fields">
+          <label for="telegram-bot-token">Bot token
+            <input id="telegram-bot-token" type="password" maxlength="256"
+              autocomplete="new-password" placeholder="Token dari BotFather">
+          </label>
+          <label for="telegram-chat-id">Chat ID atau @channel
+            <input id="telegram-chat-id" type="text" maxlength="128"
+              autocomplete="off" placeholder="Contoh: 123456789">
+          </label>
+          <label class="telegram-toggle" for="telegram-enabled">
+            <input id="telegram-enabled" type="checkbox">
+            Aktifkan notifikasi sinyal BUY/SELL
+          </label>
+          <div class="telegram-actions">
+            <button class="action-button" type="submit">Simpan pengaturan</button>
+            <button id="telegram-test" class="action-button" type="button">Kirim pesan tes</button>
+          </div>
+          <span id="telegram-connection-status" class="telegram-status">Belum dikonfigurasi</span>
+          <span class="telegram-help">
+            Buat bot melalui BotFather, mulai chat dengan bot, lalu isi chat ID (bisa diperoleh dari @userinfobot).
+            WATCH tidak mengirim notifikasi.
+            Setelan disimpan terenkripsi dengan proteksi akun Windows di komputer ini; token tidak dikirim ke dashboard.
+          </span>
+        </form>
+      </div>
+    </dialog>
+    <div id="signal-toast" class="signal-toast" role="status" aria-live="polite" hidden></div>
+    <footer>Dashboard hanya listen pada 127.0.0.1. Analisis ini merupakan alat bantu, bukan nasihat finansial.
+      Skor konfluensi bukan probabilitas menang; tick volume bukan volume transaksi terpusat.
+      Spread, slippage, komisi, gap, dan kualitas data broker dapat mengubah hasil aktual.
+      Tidak ada order yang dikirim dari dashboard.</footer>
+  </main>
+  <script>
+    "use strict";
+    const DASHBOARD_TOKEN = "__DASHBOARD_TOKEN__";
+    const STRATEGY_MODE_LABELS = {
+      trend: "Trend / Swing",
+      scalping: "Scalping"
+    };
+    const $ = (id) => document.getElementById(id);
+    const fmt = (value, digits = 2) => value == null || !Number.isFinite(Number(value))
+      ? "—" : Number(value).toLocaleString("id-ID", { maximumFractionDigits: digits });
+    let dashboardData = null;
+    let actionNotice = null;
+    const autoPilotSettingsDirty = { risk: false, dailyLoss: false };
+    let chartRange = 160;
+    let chartOffset = 0;
+    let chartGeometry = null;
+    let chartHoverIndex = null;
+    let chartDrag = null;
+    let lastLivePrice = null;
+    let lastSignalBar = null;
+    let lastSignalTimeframe = null;
+    let signalToastTimer = null;
+    let alertsEnabled = false;
+    let timeframes = [];
+
+    function redrawCharts(history) {
+      drawChart(history);
+      drawVolumeChart(history);
+    }
+
+    function setClassText(id, value, className = "") {
+      const element = $(id);
+      element.textContent = value ?? "—";
+      if (className) element.className = className;
+    }
+
+    async function updateTimeframes() {
+      const chartTimeframe = $("chart-timeframe").value;
+      const validHigherOptions = timeframes.filter(
+        tf => timeframeMinutes(tf) > timeframeMinutes(chartTimeframe)
+      );
+      if (!validHigherOptions.includes($("higher-timeframe").value)) {
+        $("higher-timeframe").value = validHigherOptions[0] || "";
+      }
+      const higherTimeframe = $("higher-timeframe").value;
+      if (!chartTimeframe || !higherTimeframe) return;
+      try {
+        const response = await fetch("/api/chart-settings", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Dashboard-Token": DASHBOARD_TOKEN
+          },
+          body: JSON.stringify({
+            timeframe: chartTimeframe,
+            higher_timeframe: higherTimeframe
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+        $("updated-chip").textContent = "Mengganti timeframe…";
+        $("signal-description").textContent = result.message;
+      } catch (error) {
+        showNotice("TIMEFRAME", `Tidak dapat mengganti timeframe: ${error}`);
+      }
+    }
+
+    async function updateStrategyMode() {
+      const mode = $("strategy-mode").value;
+      try {
+        const response = await fetch("/api/strategy-mode", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Dashboard-Token": DASHBOARD_TOKEN
+          },
+          body: JSON.stringify({ mode })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+        $("signal-description").textContent = result.message;
+        $("updated-chip").textContent = "Mengganti mode…";
+      } catch (error) {
+        showNotice("MODE", `Tidak dapat mengganti mode: ${error}`);
+      }
+    }
+
+    async function toggleAutoPilot() {
+      if (!dashboardData) return;
+      if (dashboardData.auto_pilot_enabled) {
+        await sendAction("/api/auto-pilot", { enabled: false });
+        return;
+      }
+      const risk = Number(dashboardData.auto_risk_percent);
+      const dailyLimit = Number(dashboardData.daily_loss_limit_percent);
+      const accepted = window.confirm(
+        `AUTO PILOT dapat mengirim order nyata pada akun MT5 ${dashboardData.account?.trade_mode || "?"}.\n\n` +
+        `Simbol: ${dashboardData.symbol}\n` +
+        `Strategi: ${STRATEGY_MODE_LABELS[dashboardData.strategy_mode] || dashboardData.strategy_mode} · ` +
+        `${dashboardData.timeframe}/${dashboardData.higher_timeframe}\n` +
+        `Risiko target: ${fmt(risk, 2)}% equity per order\n` +
+        `Batas rugi harian UTC: ${fmt(dailyLimit, 2)}%\n\n` +
+        "Lot dihitung dari SL. Akun harus kosong saat diaktifkan; order baru diblokir bila ada posisi/order terbuka. " +
+        "Batas harian menghentikan order baru, bukan menutup posisi terbuka. " +
+        "Tidak ada order sampai candle berikutnya tertutup."
+      );
+      if (!accepted) return;
+      const confirmationForm = $("autopilot-confirm");
+      confirmationForm.hidden = false;
+      $("autopilot-confirm-input").value = "";
+      $("autopilot-confirm-input").focus();
+    }
+
+    async function confirmAutoPilot(event) {
+      event.preventDefault();
+      const confirmation = $("autopilot-confirm-input").value;
+      if (confirmation !== "AKTIFKAN AUTO PILOT") {
+        showNotice("AUTO PILOT", "Tidak diaktifkan; frasa konfirmasi tidak cocok.");
+        return;
+      }
+      $("autopilot-confirm").hidden = true;
+      const activated = await sendAction("/api/auto-pilot", {
+        enabled: true,
+        confirm: confirmation
+      });
+      if (!activated) $("autopilot-confirm").hidden = false;
+    }
+
+    async function saveAutoPilotSettings(event) {
+      event.preventDefault();
+      const autoRiskPercent = Number($("auto-risk-setting").value);
+      const dailyLossLimitPercent = Number($("daily-loss-setting").value);
+      if (
+        !Number.isFinite(autoRiskPercent) || autoRiskPercent <= 0 || autoRiskPercent > 10 ||
+        !Number.isFinite(dailyLossLimitPercent) ||
+        dailyLossLimitPercent <= 0 || dailyLossLimitPercent > 10
+      ) {
+        showNotice("SETTINGS", "Kedua nilai harus lebih dari 0% dan tidak lebih dari 10%.");
+        return;
+      }
+      await sendAction("/api/auto-pilot-settings", {
+        auto_risk_percent: autoRiskPercent,
+        daily_loss_limit_percent: dailyLossLimitPercent
+      });
+    }
+
+    function renderChecks(setup) {
+      const container = $("checks");
+      container.replaceChildren();
+      const weights = {
+        "Trend MTF": 30, "Struktur / BOS": 25, "Pullback + RSI": 20,
+        "Relatif tick volume": 15, "Regime ADX / BB": 10,
+        "Filter sesi": null, "Risiko SL": null
+      };
+      for (const [name, weight] of Object.entries(weights)) {
+        const passed = Boolean(setup.components && setup.components[name]);
+        const row = document.createElement("div");
+        row.className = "check-row";
+        const label = document.createElement("div");
+        label.className = "check-name";
+        label.textContent = name;
+        const track = document.createElement("div");
+        track.className = "bar-track";
+        const fill = document.createElement("div");
+        fill.className = `bar-fill${passed ? "" : " off"}`;
+        fill.style.width = passed ? `${weight ?? 100}%` : "0%";
+        track.append(fill);
+        const value = document.createElement("div");
+        value.className = "check-value";
+        value.textContent = weight == null ? (passed ? "LULUS" : "GAGAL")
+          : passed ? `+${weight}` : "—";
+        row.append(label, track, value);
+        container.append(row);
+      }
+    }
+
+    function renderLevels(setup) {
+      const container = $("levels");
+      container.replaceChildren();
+      if (setup.entry == null) {
+        const placeholder = document.createElement("div");
+        placeholder.className = "level-placeholder";
+        placeholder.textContent = "Entry dan level risiko muncul saat setup memenuhi semua aturan.";
+        container.append(placeholder);
+        return;
+      }
+      const levels = [
+        ["Entry", setup.entry, "entry"],
+        ["Stop-loss", setup.stop, "stop"],
+        ["Target 1", setup.target1, "tp"],
+        ["Target 2", setup.target2, "tp"]
+      ];
+      for (const [labelText, valueText, type] of levels) {
+        const item = document.createElement("div");
+        item.className = `level ${type}`;
+        const label = document.createElement("div");
+        label.className = "level-label";
+        label.textContent = labelText;
+        const value = document.createElement("div");
+        value.className = "level-value";
+        value.textContent = fmt(valueText, 5);
+        item.append(label, value);
+        container.append(item);
+      }
+    }
+
+    function renderJournal(journal) {
+      const summary = $("journal-summary");
+      const body = $("journal-body");
+      summary.replaceChildren();
+      body.replaceChildren();
+      const horizons = journal && Array.isArray(journal.summary) ? journal.summary : [];
+      $("journal-count").textContent =
+        `${fmt(journal?.total_signals || 0, 0)} sinyal · ${journal?.symbol || "—"} ${journal?.timeframe || ""} · ${STRATEGY_MODE_LABELS[journal?.strategy_mode] || "Trend / Swing"}`;
+      for (const stats of horizons) {
+        const card = document.createElement("div");
+        card.className = "journal-horizon";
+        const heading = document.createElement("h3");
+        heading.textContent = `Horizon ${stats.horizon} candle`;
+        const metrics = document.createElement("div");
+        metrics.className = "journal-metrics";
+        for (const [label, value] of [
+          ["Sampel", fmt(stats.samples, 0)],
+          ["Win rate", stats.samples ? `${fmt(stats.win_rate, 1)}%` : "—"],
+          ["Rata-rata net", stats.samples ? `${fmt(stats.average_net_points, 1)} pt` : "—"],
+          ["Rata-rata R", stats.samples ? `${fmt(stats.average_net_r, 2)}R` : "—"],
+          ["MFE / MAE", stats.samples
+            ? `${fmt(stats.average_favorable_points, 1)} / ${fmt(stats.average_adverse_points, 1)} pt`
+            : "—"]
+        ]) {
+          const item = document.createElement("div");
+          item.className = "journal-metric";
+          const caption = document.createElement("span");
+          caption.textContent = label;
+          const amount = document.createElement("strong");
+          amount.textContent = value;
+          if (label === "MFE / MAE" && stats.samples) {
+            item.title = `Rata-rata MFE ${fmt(stats.average_favorable_r, 2)}R / MAE ${fmt(stats.average_adverse_r, 2)}R`;
+          }
+          item.append(caption, amount);
+          metrics.append(item);
+        }
+        card.append(heading, metrics);
+        summary.append(card);
+      }
+      const recent = journal && Array.isArray(journal.recent) ? journal.recent : [];
+      if (!recent.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 7;
+        cell.className = "journal-empty";
+        cell.textContent = "Belum ada setup BUY/SELL yang tercatat.";
+        row.append(cell);
+        body.append(row);
+        return;
+      }
+      for (const signal of recent) {
+        const timestamp = new Date(signal.bar_time);
+        const row = document.createElement("tr");
+        const values = [
+          Number.isNaN(timestamp.getTime())
+            ? signal.bar_time
+            : timestamp.toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" }),
+          signal.direction,
+          fmt(signal.score, 0),
+          fmt(signal.entry_price, 5),
+          1, 3, 5
+        ];
+        values.forEach((value, index) => {
+          const cell = document.createElement("td");
+          if (index < 4) {
+            cell.textContent = value;
+          } else {
+            const outcome = signal.outcomes[String(value)];
+            cell.textContent = outcome == null
+              ? "Menunggu"
+              : `${fmt(outcome.net_points, 1)} pt · ${outcome.net_r == null ? "—" : `${fmt(outcome.net_r, 2)}R`}`;
+            if (outcome) {
+              cell.title = `MFE ${fmt(outcome.favorable_points, 1)} pt (${outcome.favorable_r == null ? "—" : `${fmt(outcome.favorable_r, 2)}R`}) · MAE ${fmt(outcome.adverse_points, 1)} pt (${outcome.adverse_r == null ? "—" : `${fmt(outcome.adverse_r, 2)}R`})`;
+            }
+          }
+          if (index === 1) cell.className = signal.direction === "BUY" ? "side-buy" : "side-sell";
+          if (index >= 4 && signal.outcomes[String(value)] != null) {
+            const result = Number(signal.outcomes[String(value)].net_points);
+            cell.className = result > 0 ? "positive" : result < 0 ? "negative" : "";
+          }
+          row.append(cell);
+        });
+        body.append(row);
+      }
+    }
+
+    function renderBacktest(backtest, autoPilotEnabled = false) {
+      const button = $("run-backtest");
+      const summary = $("backtest-summary");
+      const note = $("backtest-note");
+      const status = backtest || { status: "idle" };
+      const busy = status.status === "queued" || status.status === "running";
+      button.disabled = busy || autoPilotEnabled;
+      button.textContent = busy ? "Backtest berjalan…"
+        : autoPilotEnabled ? "Matikan Auto Pilot untuk backtest"
+        : "Jalankan backtest";
+      $("backtest-status").textContent = status.status === "queued" ? "Dalam antrean"
+        : status.status === "running" ? "Menghitung data historis…"
+        : status.status === "error" ? `Gagal: ${status.error || "kesalahan tidak diketahui"}`
+        : status.status === "complete" ? "Selesai"
+        : "Belum dijalankan";
+      summary.replaceChildren();
+      if (status.status !== "complete" || !status.result) return;
+
+      const result = status.result;
+      for (const [segment, title] of [
+        ["in_sample", "In-sample · 70% awal"],
+        ["out_of_sample", "Out-of-sample · 30% akhir (uji terpisah)"]
+      ]) {
+        const period = document.createElement("div");
+        period.className = "backtest-period";
+        const periodHeading = document.createElement("h3");
+        periodHeading.textContent = title;
+        const periodGrid = document.createElement("div");
+        periodGrid.className = "backtest-period-grid";
+        const periodStats = result.summary[segment] || [];
+        const periodSamples = periodStats.reduce((total, stats) => total + stats.samples, 0);
+        if (periodSamples === 0) {
+          const empty = document.createElement("p");
+          empty.className = "backtest-empty";
+          empty.textContent = "Belum ada trade yang memenuhi setup dan exit pada periode ini. Metrik performa tidak tersedia; coba rentang candle lebih panjang, tanpa mengubah aturan sinyal hanya untuk memaksa trade.";
+          period.append(periodHeading, empty);
+          summary.append(period);
+          continue;
+        }
+        for (const stats of periodStats) {
+          const card = document.createElement("div");
+          card.className = "journal-horizon";
+          const heading = document.createElement("h3");
+          heading.textContent = `Keluar setelah maks. ${stats.horizon} candle`;
+          const metrics = document.createElement("div");
+          metrics.className = "journal-metrics";
+          const profitFactor = stats.profit_factor_unbounded
+            ? "∞"
+            : stats.profit_factor == null
+              ? "—"
+              : fmt(stats.profit_factor, 2);
+          for (const [label, value] of [
+            ["Sampel", fmt(stats.samples, 0)],
+            ["Win rate", stats.samples ? `${fmt(stats.win_rate, 1)}%` : "—"],
+            ["Expectancy", stats.samples ? `${fmt(stats.expectancy_r, 2)}R/trade` : "—"],
+            ["Profit factor", stats.samples ? profitFactor : "—"],
+            ["Max drawdown", stats.samples ? `${fmt(stats.max_drawdown_r, 2)}R` : "—"],
+            ["MFE / MAE", stats.samples
+              ? `${fmt(stats.average_favorable_r, 2)} / ${fmt(stats.average_adverse_r, 2)}R`
+              : "—"],
+            ["SL / TP / waktu", stats.samples
+              ? `${fmt(stats.stop_exits, 0)} / ${fmt(stats.target_exits, 0)} / ${fmt(stats.time_exits, 0)}`
+              : "—"],
+            ["Ambigu SL+TP", stats.samples ? fmt(stats.ambiguous_exits, 0) : "—"]
+          ]) {
+            const item = document.createElement("div");
+            item.className = "journal-metric";
+            const caption = document.createElement("span");
+            caption.textContent = label;
+            const amount = document.createElement("strong");
+            amount.textContent = value;
+            item.append(caption, amount);
+            metrics.append(item);
+          }
+          card.append(heading, metrics);
+          periodGrid.append(card);
+        }
+        period.append(periodHeading, periodGrid);
+        summary.append(period);
+      }
+      const detected = result.signals_detected.in_sample + result.signals_detected.out_of_sample;
+      const tested = result.signals_tested.in_sample + result.signals_tested.out_of_sample;
+      const skipped = result.skipped_invalid_risk.in_sample + result.skipped_invalid_risk.out_of_sample;
+      const sampleNote = detected === 0
+        ? " Tidak ada sinyal pada rentang ini; metrik performa belum tersedia."
+        : skipped > 0
+          ? ` ${fmt(skipped, 0)} sinyal dilewati karena risiko/level entry-SL-TP tidak valid.`
+          : "";
+      note.textContent = `Data ${result.symbol} ${result.timeframe} / HTF ${result.higher_timeframe} · ${fmt(result.bars, 0)} candle tertutup · split 70/30 di ${new Date(result.split_time).toLocaleString("id-ID")} · ${fmt(detected, 0)} sinyal, ${fmt(tested, 0)} trade diuji.${sampleNote} Komisi ${fmt(result.costs.commission_points_round_turn, 1)} pt round-turn; slippage ${fmt(result.costs.slippage_points_per_side, 1)} pt per sisi. ${result.assumptions.entry} ${result.assumptions.exit} ${result.assumptions.intrabar} ${result.assumptions.costs} ${result.assumptions.sampling} ${result.assumptions.out_of_sample}`;
+    }
+
+    function renderAccount(data) {
+      const account = data.account;
+      const mode = $("account-mode");
+      const grid = $("account-grid");
+      const positionsBody = $("positions-body");
+      const positions = account && Array.isArray(account.positions) ? account.positions : [];
+      $("position-count").textContent = `${positions.length} posisi`;
+      mode.className = "mode-pill";
+      if (!account || !account.connected || data.account_error) {
+        mode.textContent = "TERPUTUS";
+        mode.classList.add("offline");
+        $("account-server").textContent = data.account_error || "Menunggu koneksi terminal";
+        grid.replaceChildren();
+        const empty = document.createElement("div");
+        empty.className = "account-empty";
+        empty.textContent = data.account_error || "Informasi akun belum tersedia.";
+        grid.append(empty);
+        positionsBody.replaceChildren();
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 8;
+        cell.className = "empty-cell";
+        cell.textContent = "Posisi belum dapat dimuat.";
+        row.append(cell);
+        positionsBody.append(row);
+        return;
+      }
+
+      mode.textContent = account.trade_mode === "LIVE" ? "LIVE ACCOUNT" : account.trade_mode;
+      if (account.trade_mode === "LIVE") mode.classList.add("live");
+      if (!account.trade_allowed) {
+        mode.textContent = "TRADING NONAKTIF";
+        mode.classList.add("offline");
+      }
+      $("account-server").textContent =
+        `${account.server} · ${account.login} · 1:${account.leverage}`;
+      const accountFields = [
+        ["Balance", account.balance, ""],
+        ["Equity", account.equity, ""],
+        ["Floating P/L", account.profit, account.profit > 0 ? "positive" : account.profit < 0 ? "negative" : ""],
+        ["Margin terpakai", account.margin, ""],
+        ["Free margin", account.margin_free, ""],
+        ["Margin level", account.margin_level == null ? null : `${fmt(account.margin_level, 1)}%`, ""],
+        ["Pending orders", account.pending_orders, ""]
+      ];
+      grid.replaceChildren();
+      for (const [labelText, rawValue, tone] of accountFields) {
+        const item = document.createElement("div");
+        item.className = "account-stat";
+        const label = document.createElement("div");
+        label.className = "account-label";
+        label.textContent = labelText;
+        const value = document.createElement("div");
+        value.className = `account-value ${tone}`;
+        value.textContent = rawValue == null
+          ? "—" : typeof rawValue === "string" ? rawValue
+          : labelText === "Pending orders" ? fmt(rawValue, 0)
+          : `${fmt(rawValue, 2)} ${account.currency}`;
+        item.append(label, value);
+        grid.append(item);
+      }
+
+      positionsBody.replaceChildren();
+      if (!positions.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 8;
+        cell.className = "empty-cell";
+        cell.textContent = "Tidak ada posisi terbuka pada akun.";
+        row.append(cell);
+        positionsBody.append(row);
+        return;
+      }
+      for (const position of positions) {
+        const row = document.createElement("tr");
+        const cells = [
+          `${position.ticket} · ${position.symbol}`,
+          position.side,
+          fmt(position.volume, 2),
+          fmt(position.price_open, 5),
+          fmt(position.price_current, 5),
+          `${fmt(position.sl, 5)} / ${fmt(position.tp, 5)}`,
+          `${fmt(position.profit + position.swap, 2)} ${account.currency}`
+        ];
+        cells.forEach((text, index) => {
+          const cell = document.createElement("td");
+          cell.textContent = text;
+          if (index === 1) cell.className = position.side === "BUY" ? "side-buy" : "side-sell";
+          if (index === 6) cell.className = (position.profit + position.swap) >= 0 ? "positive" : "negative";
+          row.append(cell);
+        });
+        const actionCell = document.createElement("td");
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = "action-button close";
+        closeButton.textContent = "Tutup";
+        closeButton.disabled = !data.actions_enabled || !account.trade_allowed;
+        closeButton.title = data.actions_enabled
+          ? "Kirim instruksi tutup hanya untuk posisi ini"
+          : "Aktifkan order dari terminal terlebih dahulu";
+        closeButton.addEventListener("click", async () => {
+          const confirmed = window.confirm(
+            `Kirim instruksi untuk menutup posisi ${position.ticket} ${position.symbol} ${position.side} ${position.volume} lot?`
+          );
+          if (!confirmed) return;
+          closeButton.disabled = true;
+          await sendAction("/api/close-position", {
+            ticket: position.ticket,
+            confirm: `TUTUP ${position.ticket}`
+          });
+          closeButton.disabled = !data.actions_enabled || !account.trade_allowed;
+        });
+        actionCell.append(closeButton);
+        row.append(actionCell);
+        positionsBody.append(row);
+      }
+    }
+
+    async function sendAction(path, body) {
+      try {
+        const response = await fetch(path, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Dashboard-Token": DASHBOARD_TOKEN
+          },
+          body: JSON.stringify(body)
+        });
+        const result = await response.json();
+        if (path === "/api/auto-pilot-settings" && response.ok) {
+          autoPilotSettingsDirty.risk = false;
+          autoPilotSettingsDirty.dailyLoss = false;
+        }
+        await refresh();
+        actionNotice = {
+          label: response.ok ? "OK" : "DITOLAK",
+          message: result.message || "Tidak ada detail dari server.",
+          expiresAt: Date.now() + 15000
+        };
+        showNotice(actionNotice.label, actionNotice.message);
+        return response.ok;
+      } catch (error) {
+        showNotice("ERROR", `Aksi gagal dikirim: ${error}`);
+        return false;
+      }
+    }
+
+    function showNotice(label, message) {
+      const notice = $("notice");
+      notice.replaceChildren();
+      const title = document.createElement("b");
+      title.textContent = label;
+      const text = document.createElement("span");
+      text.textContent = message;
+      notice.append(title, text);
+    }
+
+    function render(data) {
+      dashboardData = data;
+      const setup = data.setup;
+      timeframes = data.timeframes || timeframes;
+      updateTimeframeOptions(data);
+      const selectedMode = data.requested_strategy_mode || data.strategy_mode || "trend";
+      $("strategy-mode").value = selectedMode;
+      $("strategy-mode").disabled = Boolean(data.auto_pilot_enabled);
+      $("higher-timeframe").disabled = Boolean(data.auto_pilot_enabled);
+      $("symbol-input").disabled = Boolean(data.auto_pilot_enabled) ||
+        !(data.symbols || []).length;
+      updateSymbolInput(data);
+      $("strategy-hint").textContent = selectedMode === "scalping"
+        ? "Scalping memakai EMA 9/21, struktur lebih responsif, dan pullback RSI yang menguat (bukan wajib menembus 50 tepat pada candle sinyal). Tetap wajib searah HTF, ada BOS/struktur, dan lolos batas risiko. Disarankan chart M1/M5 dengan konfirmasi M5/M15; timeframe tidak diubah otomatis."
+        : "Trend / Swing memakai preset EMA 50/200 untuk setup yang lebih selektif. Pilih timeframe dan konfirmasi sesuai rencana Anda.";
+      const terminalConnected = Boolean(data.account && data.account.connected && !data.error);
+      $("connection").textContent = data.error ? "ERROR" : terminalConnected ? "LIVE" : "CONNECTING";
+      $("live-dot").classList.toggle("offline", Boolean(data.error) || !terminalConnected);
+      $("instrument-chip").textContent = data.symbol || "MT5";
+      $("chart-symbol").textContent = data.symbol || "LIVE";
+      $("page-title").textContent = data.symbol || "Menunggu koneksi terminal";
+      $("page-subtitle").textContent = setup
+        ? `${STRATEGY_MODE_LABELS[selectedMode]} · ${setup.trend} · ${setup.structure} · pembaruan berdasarkan candle tertutup`
+        : (data.error || data.status || "Mengambil data market.");
+      $("updated-chip").textContent = data.updated_at ? `Bar ${data.updated_at}` : "Belum diperbarui";
+      $("signal-badge").textContent = data.error ? "ERROR" : (data.status || "WAITING").toUpperCase();
+      const isWatch = data.status === "WATCH BUY" || data.status === "WATCH SELL";
+      $("signal-badge").className = `signal-badge ${
+        data.status === "BUY" ? "buy" : data.status === "SELL" ? "sell" : isWatch ? "watch" : ""
+      }`;
+      $("signal-title").textContent = data.error ? "Koneksi perlu diperiksa"
+        : data.status === "BUY" ? "Bullish setup"
+        : data.status === "SELL" ? "Bearish setup"
+        : data.status === "WATCH BUY" ? "Pantauan bullish"
+        : data.status === "WATCH SELL" ? "Pantauan bearish"
+        : data.status || "Menunggu data";
+      $("signal-description").textContent = data.error
+        ? data.error : isWatch
+          ? "WATCH adalah setup awal untuk dipantau, bukan sinyal BUY/SELL. Tidak memicu alert order atau Auto Pilot."
+          : "Sinyal hanya memakai candle yang sudah ditutup.";
+      const placeOrder = $("place-order");
+      const hasTradeSignal = setup && (setup.status === "BUY" || setup.status === "SELL");
+      const signalAlreadyUsed = setup && data.last_order_bar === setup.bar_time;
+      placeOrder.disabled = !data.actions_enabled || !hasTradeSignal ||
+        signalAlreadyUsed || !data.account || !data.account.trade_allowed;
+      placeOrder.textContent = signalAlreadyUsed ? "Order candle ini sudah dikirim"
+        : setup && setup.status === "SELL" ? "Konfirmasi order SELL" : "Konfirmasi order BUY";
+      $("order-hint").textContent = data.actions_enabled && data.account && data.account.trade_allowed
+        ? `Batas risiko keras: ${fmt(data.max_risk_percent, 2)}% equity. Lot manual; SL/TP dari setup; konfirmasi sebelum kirim.`
+        : data.actions_enabled
+          ? "Trading dinonaktifkan pada terminal atau akun MT5; order dan tutup posisi diblokir."
+        : "Order dan penutupan posisi nonaktif. Aktifkan secara sadar dari terminal MT5.";
+      const autoPilotEnabled = Boolean(data.auto_pilot_enabled);
+      $("telegram-enabled").checked = Boolean(data.telegram_enabled);
+      $("telegram-bot-token").placeholder = data.telegram_configured
+        ? "Token tersimpan; isi hanya jika ingin mengganti"
+        : "Token dari BotFather";
+      $("telegram-test").disabled = !data.telegram_configured;
+      $("telegram-connection-status").textContent = data.telegram_last_status ||
+        (data.telegram_configured ? "Bot tersimpan di monitor." : "Belum dikonfigurasi");
+      const autoPilotAvailable = Boolean(data.auto_pilot_available);
+      $("autopilot-box").classList.toggle("active", autoPilotEnabled);
+      $("autopilot-status").textContent = autoPilotEnabled
+        ? "AKTIF" : (data.auto_pilot_status || "OFF");
+      $("autopilot-toggle").textContent = autoPilotEnabled
+        ? "Matikan Auto Pilot"
+        : autoPilotAvailable ? "Aktifkan Auto Pilot" : "Auto Pilot tidak tersedia";
+      $("autopilot-toggle").classList.toggle("active", autoPilotEnabled);
+      const accountHasExposure = Boolean(
+        data.account && (
+          (data.account.positions || []).length > 0 ||
+          Number(data.account.pending_orders || 0) > 0
+        )
+      );
+      $("autopilot-toggle").disabled = !autoPilotAvailable ||
+        (!autoPilotEnabled && (!data.account || !data.account.connected ||
+          !data.account.trade_allowed || accountHasExposure ||
+          ["queued", "running"].includes(data.backtest?.status)));
+      const riskSetting = $("auto-risk-setting");
+      const dailyLossSetting = $("daily-loss-setting");
+      if (!autoPilotSettingsDirty.risk) {
+        riskSetting.value = data.auto_risk_percent ?? "";
+      }
+      if (!autoPilotSettingsDirty.dailyLoss) {
+        dailyLossSetting.value = data.daily_loss_limit_percent ?? "";
+      }
+      riskSetting.disabled = autoPilotEnabled || !autoPilotAvailable;
+      dailyLossSetting.disabled = autoPilotEnabled || !autoPilotAvailable;
+      $("autopilot-settings-form").querySelector("button[type='submit']").disabled =
+        autoPilotEnabled || !autoPilotAvailable;
+      const dailyRisk = data.daily_risk;
+      const dailyLossText = dailyRisk
+        ? `Rugi hari UTC ${fmt(dailyRisk.loss_percent, 2)}% / batas ${fmt(data.daily_loss_limit_percent, 2)}%`
+        : `Batas rugi harian UTC ${fmt(data.daily_loss_limit_percent, 2)}%`;
+      $("autopilot-detail").textContent = !autoPilotAvailable
+        ? "Monitor ini tidak diluncurkan dengan izin Auto Pilot. Tutup monitor lalu jalankan shortcut Atlas versi terbaru."
+        : `${fmt(data.auto_risk_percent, 2)}% risiko target per order · ${dailyLossText}. ` +
+          "Lot dihitung dari SL; akun harus kosong saat diaktifkan; order baru diblokir selama ada posisi/order terbuka; batas rugi menghentikan order baru (tidak menutup posisi); mulai OFF setiap aplikasi dibuka." +
+          (!autoPilotEnabled && data.account && data.account.connected &&
+            !data.account.trade_allowed
+            ? " Tombol terkunci: izin trading MT5 nonaktif; periksa Algo Trading dan izin akun."
+            : "") +
+          (!autoPilotEnabled && accountHasExposure
+            ? " Tutup semua posisi dan pending order akun sebelum mengaktifkan."
+            : "") +
+          (data.auto_pilot_error ? ` Status: ${data.auto_pilot_error}` : "");
+      renderAccount(data);
+      renderJournal(data.journal);
+      renderBacktest(data.backtest, autoPilotEnabled);
+      checkSignalAlert(setup, data.symbol, `${data.timeframe}:${selectedMode}`);
+
+      if (!setup) {
+        if (data.market) renderLiveMarket(data.market);
+        redrawCharts([]);
+        return;
+      }
+      if (data.market) renderLiveMarket(data.market);
+      $("score").textContent = setup.score;
+      $("score-ring").style.setProperty("--score", `${setup.score}%`);
+      $("direction-scores").textContent = `BUY ${setup.buy_score} / SELL ${setup.sell_score}`;
+      $("breakdown-score").textContent = `${setup.score} / 100`;
+      $("rsi").textContent = fmt(setup.rsi, 1);
+      $("rsi-period").textContent = selectedMode === "scalping" ? "9" : "14";
+      $("rsi-foot").textContent = setup.rsi > 70 ? "Zona momentum tinggi"
+        : setup.rsi < 30 ? "Zona momentum rendah" : "Momentum relatif netral";
+      $("adx").textContent = fmt(setup.adx, 1);
+      $("adx-foot").textContent = setup.adx >= 25 ? "Tren relatif kuat" : "Tren belum kuat";
+      $("atr").textContent = fmt(setup.atr, 5);
+      $("atr-period").textContent = selectedMode === "scalping" ? "10" : "14";
+      $("band-width").textContent = `${fmt(setup.band_width_percent, 2)}%`;
+      $("spread").textContent = fmt(setup.spread_points, 1);
+      $("macd").textContent = fmt(setup.macd, 3);
+      $("macd-foot").textContent = `Signal ${fmt(setup.macd_signal, 3)}`;
+      $("stochastic").textContent = fmt(setup.stochastic_k, 1);
+      $("stochastic-foot").textContent = setup.stochastic_k >= 80 ? "Momentum tinggi"
+        : setup.stochastic_k <= 20 ? "Momentum rendah" : "Momentum 14";
+      $("trend").textContent = setup.trend;
+      $("structure").textContent = setup.structure;
+      $("relative-volume").textContent = `${fmt(setup.relative_volume, 2)}x`;
+      $("filters").textContent = setup.components
+        ? `${setup.components["Regime ADX / BB"] ? "Regime lulus" : "Regime menahan"} · ${setup.components["Filter sesi"] ? "sesi lulus" : "sesi menahan"}`
+        : "—";
+      const history = data.history || [];
+      $("chart-price").textContent = history.length
+        ? fmt(history[history.length - 1].close, 5) : "—";
+      renderChecks(setup);
+      renderLevels(setup);
+      if (actionNotice && Date.now() < actionNotice.expiresAt) {
+        showNotice(actionNotice.label, actionNotice.message);
+      } else if (data.last_action) {
+        actionNotice = null;
+        showNotice("AKSI TERAKHIR", data.last_action);
+      }
+      else showNotice("STATUS", data.error || `${data.status}. Tidak ada order yang dikirim.`);
+      redrawCharts(history);
+    }
+
+    function updateTimeframeOptions(data) {
+      const chartSelect = $("chart-timeframe");
+      const higherSelect = $("higher-timeframe");
+      chartSelect.disabled = Boolean(data.auto_pilot_enabled);
+      higherSelect.disabled = Boolean(data.auto_pilot_enabled);
+      if (!timeframes.length) return;
+      const chartOptions = timeframes.filter(tf => tf !== "MN1");
+      const higherOptions = timeframes.filter(tf => tf !== "M1");
+      const populate = (select, options, selected) => {
+        const signature = options.join(",");
+        if (select.dataset.options !== signature) {
+          select.replaceChildren();
+          options.forEach(tf => {
+            const option = document.createElement("option");
+            option.value = tf;
+            option.textContent = tf;
+            select.append(option);
+          });
+          select.dataset.options = signature;
+        }
+        if (selected && options.includes(selected)) select.value = selected;
+      };
+      populate(
+        chartSelect,
+        chartOptions,
+        data.requested_timeframe || data.timeframe
+      );
+      const validHigher = higherOptions.filter(
+        tf => timeframeMinutes(tf) > timeframeMinutes(chartSelect.value)
+      );
+      populate(
+        higherSelect,
+        validHigher,
+        data.requested_higher_timeframe || data.higher_timeframe
+      );
+      document.querySelectorAll(".timeframe-btn").forEach(button => {
+        const active = button.dataset.timeframe === chartSelect.value;
+        button.disabled = Boolean(data.auto_pilot_enabled) ||
+          !chartOptions.includes(button.dataset.timeframe);
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    function updateSymbolInput(data) {
+      const input = $("symbol-input");
+      const symbols = Array.isArray(data.symbols) ? data.symbols : [];
+      input.dataset.symbols = JSON.stringify(symbols);
+      if (data.symbol && input.dataset.currentSymbol !== data.symbol) {
+        input.dataset.currentSymbol = data.symbol;
+        input.dataset.editing = "false";
+        if (document.activeElement !== input) input.value = data.symbol;
+      }
+      renderSymbolSuggestions();
+    }
+
+    function renderSymbolSuggestions() {
+      const input = $("symbol-input");
+      const suggestions = $("symbol-suggestions");
+      if (input.dataset.editing !== "true") {
+        suggestions.hidden = true;
+        return;
+      }
+      const query = input.value.trim().toLowerCase();
+      const symbols = JSON.parse(input.dataset.symbols || "[]");
+      const matches = query
+        ? symbols.filter(symbol => symbol.toLowerCase().includes(query)).slice(0, 12)
+        : [];
+      suggestions.replaceChildren();
+      matches.forEach(symbol => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "symbol-suggestion";
+        option.setAttribute("role", "option");
+        option.textContent = symbol;
+        option.addEventListener("mousedown", event => event.preventDefault());
+        option.addEventListener("click", () => {
+          void selectSymbol(symbol);
+        });
+        suggestions.append(option);
+      });
+      suggestions.hidden = matches.length === 0 || input.disabled;
+    }
+
+    async function selectSymbol(symbol) {
+      const input = $("symbol-input");
+      const symbols = dashboardData?.symbols || [];
+      if (!symbols.includes(symbol)) {
+        showNotice("DITOLAK", `Simbol "${symbol}" tidak ditemukan pada daftar MT5.`);
+        return;
+      }
+      $("symbol-suggestions").hidden = true;
+      input.value = symbol;
+      input.dataset.currentSymbol = symbol;
+      input.dataset.editing = "false";
+      if (symbol === dashboardData?.symbol) return;
+      input.disabled = true;
+      try {
+        await sendAction("/api/symbol", { symbol });
+      } finally {
+        input.disabled = Boolean(
+          dashboardData?.auto_pilot_enabled || !(dashboardData?.symbols || []).length
+        );
+      }
+    }
+
+    function timeframeMinutes(value) {
+      const match = /^(M|H|D|W|MN)(\d+)?$/.exec(value || "");
+      if (!match) return 0;
+      const count = Number(match[2] || 1);
+      return match[1] === "M" ? count
+        : match[1] === "H" ? count * 60
+        : match[1] === "D" ? count * 1440
+        : match[1] === "W" ? count * 10080
+        : count * 43200;
+    }
+
+    function renderLiveMarket(market) {
+      const price = Number(market.last || market.bid);
+      const priceElement = $("chart-price");
+      priceElement.textContent = fmt(price, 5);
+      if (lastLivePrice != null && price !== lastLivePrice) {
+        priceElement.classList.remove("flash");
+        void priceElement.offsetWidth;
+        priceElement.classList.add("flash");
+      }
+      lastLivePrice = price;
+      $("price-change").textContent =
+        `BID ${fmt(market.bid, 5)} · ASK ${fmt(market.ask, 5)}`;
+      $("spread").textContent = fmt(market.spread_points, 1);
+      if (market.tick_time) {
+        $("chart-time").textContent = `LIVE tick · ${new Date(market.tick_time).toLocaleTimeString("id-ID")}`;
+      }
+      const freshness = $("tick-freshness");
+      const tickAge = market.tick_time
+        ? Math.max(0, (Date.now() - Date.parse(market.tick_time)) / 1000)
+        : Infinity;
+      const ageLabel = Number.isFinite(tickAge)
+        ? tickAge < 10 ? `${tickAge.toFixed(1)}s` : `${Math.floor(tickAge)}s`
+        : "—";
+      freshness.textContent = tickAge <= 5 ? `TICK ${ageLabel}`
+        : Number.isFinite(tickAge) ? `LAMBAT ${ageLabel}` : "TICK TERPUTUS";
+      freshness.classList.toggle("stale", tickAge > 5 && Number.isFinite(tickAge));
+      freshness.classList.toggle("offline", !Number.isFinite(tickAge) || tickAge > 30);
+    }
+
+    function drawChart(history) {
+      const canvas = $("price-chart");
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(rect.width * ratio);
+      canvas.height = Math.round(rect.height * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      if (!history.length) {
+        chartGeometry = null;
+        ["ohlc-open", "ohlc-high", "ohlc-low", "ohlc-close"].forEach(id => {
+          $(id).textContent = "—";
+        });
+        ctx.fillStyle = "#8490a2";
+        ctx.font = "12px system-ui";
+        ctx.fillText("Menunggu data candle dari MT5…", 16, 28);
+        return;
+      }
+      chartOffset = Math.min(chartOffset, Math.max(0, history.length - 1));
+      const end = Math.max(0, history.length - chartOffset);
+      const rows = history.slice(Math.max(0, end - chartRange), end);
+      if (!rows.length) return;
+      const left = 8, right = 66, top = 14, bottom = 24;
+      const width = rect.width - left - right;
+      const height = rect.height - top - bottom;
+      if (width <= 0 || height <= 0) return;
+      chartGeometry = { rows, left, top, width, height, rect, xStep: width / rows.length };
+      const liveMarket = chartOffset === 0 && dashboardData && dashboardData.market;
+      const livePrice = liveMarket ? Number(liveMarket.bid) : NaN;
+      const prices = rows.flatMap(row => [row.high, row.low, row.ema_fast, row.ema_slow]);
+      if (Number.isFinite(livePrice)) prices.push(livePrice);
+      const levels = dashboardData && dashboardData.setup
+        ? [dashboardData.setup.entry, dashboardData.setup.stop,
+           dashboardData.setup.target1, dashboardData.setup.target2].filter(Number.isFinite)
+        : [];
+      const min = Math.min(...prices, ...levels);
+      const max = Math.max(...prices, ...levels);
+      const padding = Math.max((max - min) * .08, Math.abs(max) * .00005);
+      const low = min - padding, high = max + padding;
+      const y = value => top + (high - value) / (high - low) * height;
+      const xStep = width / rows.length;
+
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i <= 4; i++) {
+        const price = high - (high - low) * i / 4;
+        const py = top + height * i / 4;
+        ctx.strokeStyle = "#252d39";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(left + width, py); ctx.stroke();
+        ctx.fillStyle = "#8490a2";
+        ctx.fillText(fmt(price, 5), rect.width - 5, py);
+      }
+      const currentSetup = dashboardData && dashboardData.setup;
+      const line = (value, color, dash) => {
+        if (!Number.isFinite(value)) return;
+        ctx.save();
+        ctx.setLineDash(dash);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = .8;
+        ctx.beginPath(); ctx.moveTo(left, y(value)); ctx.lineTo(left + width, y(value)); ctx.stroke();
+        ctx.restore();
+      };
+      if (currentSetup) {
+        line(currentSetup.entry, "#73a9ff", [4, 4]);
+        line(currentSetup.stop, "#ff6b78", [4, 4]);
+        line(currentSetup.target1, "#41d69a", [3, 5]);
+        line(currentSetup.target2, "#41d69a", [3, 5]);
+      }
+
+      rows.forEach((row, index) => {
+        const center = left + xStep * (index + .5);
+        const bullish = row.close >= row.open;
+        const color = bullish ? "#41d69a" : "#ff6b78";
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = Math.max(1, Math.min(1.5, xStep * .35));
+        ctx.beginPath(); ctx.moveTo(center, y(row.high)); ctx.lineTo(center, y(row.low)); ctx.stroke();
+        const bodyTop = y(Math.max(row.open, row.close));
+        const bodyHeight = Math.max(1, Math.abs(y(row.open) - y(row.close)));
+        const bodyWidth = Math.max(1, Math.min(xStep * .62, 8));
+        ctx.fillRect(center - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+      });
+
+      const plotLine = (key, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        rows.forEach((row, index) => {
+          const px = left + xStep * (index + .5), py = y(row[key]);
+          if (index === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+      };
+      plotLine("ema_fast", "#73a9ff");
+      plotLine("ema_slow", "#ae95ff");
+
+      const readoutRow = chartHoverIndex == null
+        ? rows[rows.length - 1]
+        : rows[Math.min(chartHoverIndex, rows.length - 1)];
+      for (const [elementId, field] of [
+        ["ohlc-open", "open"], ["ohlc-high", "high"],
+        ["ohlc-low", "low"], ["ohlc-close", "close"]
+      ]) {
+        $(elementId).textContent = fmt(readoutRow[field], 5);
+      }
+
+      if (Number.isFinite(livePrice)) {
+        const liveY = y(livePrice);
+        const lastRow = rows[rows.length - 1];
+        const liveColor = livePrice >= lastRow.open ? "#41d69a" : "#ff6b78";
+        ctx.save();
+        ctx.strokeStyle = liveColor;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(left, liveY);
+        ctx.lineTo(left + width, liveY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = liveColor;
+        ctx.fillRect(rect.width - right + 3, liveY - 9, right - 6, 18);
+        ctx.fillStyle = "#0a0d12";
+        ctx.font = "9px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(fmt(livePrice, 5), rect.width - right / 2, liveY);
+        ctx.restore();
+      }
+
+      if (chartHoverIndex != null && chartHoverIndex < rows.length) {
+        const row = rows[chartHoverIndex];
+        const crossX = left + xStep * (chartHoverIndex + .5);
+        const crossY = y(row.close);
+        ctx.save();
+        ctx.strokeStyle = "#dce7f5";
+        ctx.globalAlpha = .55;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        ctx.moveTo(crossX, top);
+        ctx.lineTo(crossX, top + height);
+        ctx.moveTo(left, crossY);
+        ctx.lineTo(left + width, crossY);
+        ctx.stroke();
+        ctx.restore();
+        const tooltip = $("chart-tooltip");
+        const date = new Date(row.time);
+        tooltip.textContent =
+          `${date.toLocaleString("id-ID")} · O ${fmt(row.open, 5)} H ${fmt(row.high, 5)} L ${fmt(row.low, 5)} C ${fmt(row.close, 5)} · Vol ${fmt(row.tick_volume, 0)}`;
+        tooltip.style.display = "block";
+      } else {
+        $("chart-tooltip").style.display = "none";
+      }
+
+      ctx.fillStyle = "#8490a2";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      const firstDate = new Date(rows[0].time);
+      const lastDate = new Date(rows[rows.length - 1].time);
+      ctx.fillText(firstDate.toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), left, top + height + 8);
+      ctx.textAlign = "right";
+      ctx.fillText(lastDate.toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), left + width, top + height + 8);
+    }
+
+    function drawVolumeChart(history) {
+      const canvas = $("volume-chart");
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(rect.width * ratio);
+      canvas.height = Math.round(rect.height * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      const end = Math.max(0, history.length - chartOffset);
+      const rows = history.slice(Math.max(0, end - chartRange), end);
+      if (!rows.length || !rows.some(row => Number.isFinite(Number(row.tick_volume)))) return;
+      const left = 8, right = 66, top = 7, bottom = 5;
+      const width = rect.width - left - right;
+      const height = rect.height - top - bottom;
+      if (width <= 0 || height <= 0) return;
+      const maxVolume = Math.max(...rows.map(row => Number(row.tick_volume) || 0), 1);
+      const xStep = width / rows.length;
+      const barWidth = Math.max(1, Math.min(xStep * .62, 8));
+      ctx.fillStyle = "#8490a2";
+      ctx.font = "9px ui-monospace, monospace";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText(fmt(maxVolume, 0), rect.width - 5, top);
+      ctx.strokeStyle = "#252d39";
+      ctx.beginPath();
+      ctx.moveTo(left, top + height);
+      ctx.lineTo(left + width, top + height);
+      ctx.stroke();
+      rows.forEach((row, index) => {
+        const volume = Number(row.tick_volume) || 0;
+        const barHeight = Math.max(1, volume / maxVolume * height);
+        const center = left + xStep * (index + .5);
+        ctx.fillStyle = row.close >= row.open ? "#41d69a88" : "#ff6b7888";
+        ctx.fillRect(center - barWidth / 2, top + height - barHeight, barWidth, barHeight);
+      });
+      if (chartHoverIndex != null && chartHoverIndex < rows.length) {
+        const crossX = left + xStep * (chartHoverIndex + .5);
+        ctx.strokeStyle = "#dce7f5";
+        ctx.globalAlpha = .55;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        ctx.moveTo(crossX, top);
+        ctx.lineTo(crossX, top + height);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.setLineDash([]);
+      }
+    }
+
+    function checkSignalAlert(setup, symbol, timeframe) {
+      if (!setup || !setup.bar_time) return;
+      if (lastSignalTimeframe !== timeframe || lastSignalBar === null) {
+        lastSignalTimeframe = timeframe;
+        lastSignalBar = setup.bar_time;
+        return;
+      }
+      if (setup.bar_time === lastSignalBar) return;
+      lastSignalBar = setup.bar_time;
+      if (setup.status !== "BUY" && setup.status !== "SELL") return;
+
+      const toast = $("signal-toast");
+      toast.className = `signal-toast ${setup.status.toLowerCase()}`;
+      toast.replaceChildren();
+      const title = document.createElement("strong");
+      title.textContent = `Setup ${setup.status} · ${symbol || "MT5"}`;
+      const detail = document.createElement("span");
+      detail.textContent = `${setup.trend} · ${setup.structure} · skor ${setup.score}. Candle ${new Date(setup.bar_time).toLocaleString("id-ID")}.`;
+      toast.append(title, detail);
+      toast.hidden = false;
+      window.clearTimeout(signalToastTimer);
+      signalToastTimer = window.setTimeout(() => {
+        toast.hidden = true;
+      }, 8000);
+
+      if (alertsEnabled && "Notification" in window && Notification.permission === "granted") {
+        new Notification(`Setup ${setup.status} · ${symbol || "MT5"}`, {
+          body: `${setup.trend} · ${setup.structure} · skor ${setup.score}`
+        });
+      }
+    }
+
+    function setChartRange(range) {
+      chartRange = Math.max(40, Math.min(240, range));
+      chartHoverIndex = null;
+      document.querySelectorAll(".range-btn").forEach(button => {
+        button.classList.toggle("active", Number(button.dataset.range) === chartRange);
+      });
+      const followingLive = chartOffset === 0;
+      $("live-follow").classList.toggle("active", followingLive);
+      $("live-follow").setAttribute("aria-pressed", String(followingLive));
+      if (dashboardData) redrawCharts(dashboardData.history || []);
+    }
+
+    function setLiveFollow(enabled) {
+      if (enabled) chartOffset = 0;
+      const button = $("live-follow");
+      button.classList.toggle("active", enabled);
+      button.setAttribute("aria-pressed", String(enabled));
+      button.title = enabled ? "Ikuti candle terbaru" : "Chart digeser; klik untuk kembali ke live";
+      if (enabled && dashboardData) redrawCharts(dashboardData.history || []);
+    }
+
+    function updateAlertControl(enabled) {
+      const button = $("alert-toggle");
+      button.classList.toggle("active", enabled);
+      button.setAttribute("aria-pressed", String(enabled));
+      button.textContent = enabled ? "Alert aktif" : "Alert mati";
+      button.title = enabled
+        ? "Notifikasi setup candle tertutup aktif"
+        : "Aktifkan notifikasi setup candle tertutup";
+    }
+
+    function beginChartDrag(event) {
+      if (event.button !== 0 || !chartGeometry) return;
+      chartDrag = {
+        startX: event.clientX,
+        startOffset: chartOffset,
+        moved: false
+      };
+      event.currentTarget.classList.add("dragging");
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    function moveChartPointer(event, canvas) {
+      if (!chartGeometry) return;
+      if (chartDrag) {
+        const delta = event.clientX - chartDrag.startX;
+        if (Math.abs(delta) > 3) chartDrag.moved = true;
+        if (chartDrag.moved) {
+          chartOffset = Math.max(
+            0,
+            Math.min(
+              (dashboardData?.history || []).length - 1,
+              chartDrag.startOffset + Math.round(delta / chartGeometry.xStep)
+            )
+          );
+          chartHoverIndex = null;
+          const followButton = $("live-follow");
+          const followingLive = chartOffset === 0;
+          followButton.classList.toggle("active", followingLive);
+          followButton.setAttribute("aria-pressed", String(followingLive));
+          redrawCharts(dashboardData ? dashboardData.history || [] : []);
+        }
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left - chartGeometry.left;
+      if (x < 0 || x > chartGeometry.width) return;
+      chartHoverIndex = Math.min(
+        chartGeometry.rows.length - 1,
+        Math.floor(x / chartGeometry.xStep)
+      );
+      redrawCharts(dashboardData ? dashboardData.history || [] : []);
+      if (canvas.id === "price-chart") {
+        const tooltip = $("chart-tooltip");
+        const wrap = document.querySelector(".price-chart-wrap").getBoundingClientRect();
+        tooltip.style.left = `${Math.max(4, Math.min(event.clientX - wrap.left + 10, wrap.width - 250))}px`;
+        tooltip.style.top = `${Math.max(4, Math.min(event.clientY - wrap.top + 10, wrap.height - 38))}px`;
+      } else {
+        const tooltip = $("chart-tooltip");
+        const wrap = document.querySelector(".price-chart-wrap").getBoundingClientRect();
+        tooltip.style.left = `${Math.max(4, Math.min(event.clientX - wrap.left + 10, wrap.width - 250))}px`;
+        tooltip.style.top = "8px";
+      }
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        render(data);
+      } catch (error) {
+        $("connection").textContent = "OFFLINE";
+        $("live-dot").classList.add("offline");
+        $("tick-freshness").textContent = "DASHBOARD OFFLINE";
+        $("tick-freshness").classList.add("offline");
+        $("signal-description").textContent = `Tidak dapat membaca data: ${error}`;
+      }
+    }
+    document.querySelectorAll(".range-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        setChartRange(Number(button.dataset.range));
+      });
+    });
+    document.querySelectorAll(".timeframe-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        setLiveFollow(true);
+        $("chart-timeframe").value = button.dataset.timeframe;
+        updateTimeframes();
+      });
+    });
+    $("chart-timeframe").addEventListener("change", () => {
+      setLiveFollow(true);
+      updateTimeframes();
+    });
+    $("higher-timeframe").addEventListener("change", updateTimeframes);
+    $("strategy-mode").addEventListener("change", updateStrategyMode);
+    $("telegram-settings-open").addEventListener("click", () => {
+      $("telegram-dialog").showModal();
+    });
+    $("telegram-settings-close").addEventListener("click", () => {
+      $("telegram-dialog").close();
+    });
+    $("telegram-dialog").addEventListener("click", event => {
+      if (event.target === $("telegram-dialog")) $("telegram-dialog").close();
+    });
+    $("telegram-settings-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const tokenInput = $("telegram-bot-token");
+      const saved = await sendAction("/api/telegram-settings", {
+        bot_token: tokenInput.value,
+        chat_id: $("telegram-chat-id").value,
+        enabled: $("telegram-enabled").checked
+      });
+      if (saved) tokenInput.value = "";
+    });
+    $("telegram-test").addEventListener("click", async () => {
+      $("telegram-test").disabled = true;
+      await sendAction("/api/telegram-test", {});
+      $("telegram-test").disabled = !dashboardData?.telegram_configured;
+    });
+    $("symbol-input").addEventListener("input", event => {
+      event.currentTarget.dataset.editing = "true";
+      renderSymbolSuggestions();
+    });
+    $("symbol-input").addEventListener("focus", renderSymbolSuggestions);
+    $("symbol-input").addEventListener("blur", () => {
+      window.setTimeout(() => { $("symbol-suggestions").hidden = true; }, 120);
+    });
+    $("autopilot-toggle").addEventListener("click", toggleAutoPilot);
+    $("autopilot-confirm").addEventListener("submit", confirmAutoPilot);
+    $("autopilot-cancel").addEventListener("click", () => {
+      $("autopilot-confirm").hidden = true;
+      $("autopilot-confirm-input").value = "";
+    });
+    $("autopilot-settings-form").addEventListener("input", (event) => {
+      if (event.target.id === "auto-risk-setting") {
+        autoPilotSettingsDirty.risk = true;
+      } else if (event.target.id === "daily-loss-setting") {
+        autoPilotSettingsDirty.dailyLoss = true;
+      }
+    });
+    $("autopilot-settings-form").addEventListener("submit", saveAutoPilotSettings);
+    $("live-follow").addEventListener("click", () => setLiveFollow(true));
+    $("alert-toggle").addEventListener("click", async () => {
+      if (!("Notification" in window)) {
+        showNotice("ALERT", "Browser ini tidak mendukung notifikasi desktop.");
+        return;
+      }
+      if (alertsEnabled) {
+        alertsEnabled = false;
+        updateAlertControl(false);
+        showNotice("ALERT", "Notifikasi setup dinonaktifkan.");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        showNotice("ALERT", "Izin notifikasi diblokir browser. Ubah izin situs di pengaturan browser.");
+        return;
+      }
+      let permission = Notification.permission;
+      if (permission !== "granted") {
+        try {
+          permission = await Notification.requestPermission();
+        } catch (error) {
+          showNotice("ALERT", `Tidak dapat meminta izin notifikasi: ${error}`);
+          return;
+        }
+      }
+      alertsEnabled = permission === "granted";
+      updateAlertControl(alertsEnabled);
+      showNotice(
+        "ALERT",
+        alertsEnabled ? "Notifikasi setup candle tertutup aktif untuk sesi ini."
+          : "Izin notifikasi tidak diberikan; toast di dashboard tetap tersedia."
+      );
+    });
+    $("chart-expand").addEventListener("click", () => {
+      const card = document.querySelector(".chart-card");
+      const expanded = card.classList.toggle("expanded");
+      $("chart-expand").setAttribute("aria-pressed", String(expanded));
+      $("chart-expand").setAttribute(
+        "aria-label",
+        expanded ? "Kembalikan ukuran chart" : "Perbesar chart"
+      );
+      $("chart-expand").textContent = expanded ? "×" : "⛶";
+      requestAnimationFrame(() => {
+        if (dashboardData) redrawCharts(dashboardData.history || []);
+      });
+    });
+    window.addEventListener("keydown", event => {
+      if (event.key === "Escape" && document.querySelector(".chart-card").classList.contains("expanded")) {
+        $("chart-expand").click();
+      }
+    });
+    for (const canvas of [$("price-chart"), $("volume-chart")]) {
+      canvas.addEventListener("pointerdown", beginChartDrag);
+      canvas.addEventListener("pointermove", event => moveChartPointer(event, canvas));
+      canvas.addEventListener("pointerleave", () => {
+        if (chartDrag) return;
+        chartHoverIndex = null;
+        $("chart-tooltip").style.display = "none";
+        if (dashboardData) redrawCharts(dashboardData.history || []);
+      });
+      canvas.addEventListener("wheel", event => {
+        event.preventDefault();
+        const factor = event.deltaY > 0 ? 1.15 : .87;
+        setChartRange(Math.round(chartRange * factor));
+      }, { passive: false });
+    }
+    window.addEventListener("pointerup", () => {
+      if (!chartDrag) return;
+      chartDrag = null;
+      $("price-chart").classList.remove("dragging");
+      $("volume-chart").classList.remove("dragging");
+    });
+    window.addEventListener("pointercancel", () => {
+      chartDrag = null;
+      $("price-chart").classList.remove("dragging");
+      $("volume-chart").classList.remove("dragging");
+    });
+    $("place-order").addEventListener("click", async () => {
+      if (!dashboardData || !dashboardData.setup) return;
+      const setup = dashboardData.setup;
+      const volume = Number($("order-volume").value);
+      if (!Number.isFinite(volume) || volume <= 0) {
+        showNotice("DITOLAK", "Masukkan volume lot yang valid.");
+        return;
+      }
+      const riskPercent = dashboardData.max_risk_percent;
+      const confirmed = window.confirm(
+        `Kirim ${setup.status} ${dashboardData.symbol} ${volume} lot?\n` +
+        `Entry referensi: ${fmt(setup.entry, 5)}\nSL: ${fmt(setup.stop, 5)}\n` +
+        `TP2: ${fmt(setup.target2, 5)}\nBatas risiko estimasi: ${fmt(riskPercent, 2)}% equity.\n\n` +
+        "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
+      );
+      if (!confirmed) return;
+      $("place-order").disabled = true;
+      await sendAction("/api/order", { volume, confirm: "KIRIM" });
+    });
+    $("run-backtest").addEventListener("click", async () => {
+      const button = $("run-backtest");
+      const commission = Number($("backtest-commission").value);
+      const slippage = Number($("backtest-slippage").value);
+      if (!Number.isFinite(commission) || commission < 0 ||
+          !Number.isFinite(slippage) || slippage < 0) {
+        showNotice("DITOLAK", "Komisi dan slippage harus berupa angka non-negatif.");
+        return;
+      }
+      button.disabled = true;
+      await sendAction("/api/backtest", {
+        bars: Number($("backtest-bars").value),
+        commission_points: commission,
+        slippage_points: slippage
+      });
+    });
+    window.addEventListener("resize", () => {
+      if (dashboardData) redrawCharts(dashboardData.history || []);
+    });
+    updateAlertControl(false);
+    refresh();
+    setInterval(refresh, 500);
+  </script>
+</body>
+</html>
