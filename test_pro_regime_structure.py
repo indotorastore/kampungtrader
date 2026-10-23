@@ -178,12 +178,204 @@ class IndicatorTests(unittest.TestCase):
             self.assertEqual(risk_percent, 0.2)
             self.assertIn("Estimasi rugi SL", detail)
 
+            no_levels_request, no_levels_detail, no_levels_risk = (
+                monitor.prepare_manual_order(
+                    "BUY", "TEST", 0.1, None, None, Config(), 20
+                )
+            )
+            self.assertIsNotNone(no_levels_request)
+            self.assertEqual(no_levels_request["sl"], 0.0)
+            self.assertEqual(no_levels_request["tp"], 0.0)
+            self.assertIsNone(no_levels_risk)
+            self.assertIn("risiko tidak dibatasi", no_levels_detail)
+            self.assertIn("Tanpa TP", no_levels_detail)
+
+            sl_only_request, _, sl_only_risk = monitor.prepare_manual_order(
+                "BUY", "TEST", 0.1, 99.0, None, Config(max_risk_percent=1.0), 20
+            )
+            self.assertIsNotNone(sl_only_request)
+            self.assertEqual(sl_only_request["sl"], 99.0)
+            self.assertEqual(sl_only_request["tp"], 0.0)
+            self.assertEqual(sl_only_risk, 0.2)
+
             invalid_request, message, invalid_risk = monitor.prepare_manual_order(
                 "BUY", "TEST", 0.1, 101.0, 102.0, Config(), 20
             )
         self.assertIsNone(invalid_request)
         self.assertIn("sisi harga", message)
         self.assertIsNone(invalid_risk)
+
+    def test_chart_signal_markers_include_all_entries_inside_visible_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            journal_path = Path(directory) / "signals.sqlite"
+            initialize_signal_journal(journal_path)
+            with (
+                monitor.closing(monitor.sqlite3.connect(journal_path)) as connection,
+                connection,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO signals (
+                        symbol, timeframe, bar_time, direction, entry_price,
+                        stop_price, risk_points, point_size, score, trend,
+                        structure, spread_points, components_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "TEST", "M5:scalping:v2", "2025-01-01T00:05:00+00:00",
+                        "BUY", 100.0, 99.0, 100.0, 0.01, 80, "BULLISH",
+                        "BOS bullish", 1.0, "{}", "2025-01-01T00:05:00+00:00",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO signals (
+                        symbol, timeframe, bar_time, direction, entry_price,
+                        stop_price, risk_points, point_size, score, trend,
+                        structure, spread_points, components_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "TEST", "M15:scalping", "2025-01-01T00:10:00+00:00",
+                        "SELL", 101.0, 102.0, 100.0, 0.01, 75, "BEARISH",
+                        "BOS bearish", 1.0, "{}", "2025-01-01T00:10:00+00:00",
+                    ),
+                )
+            history = [
+                {"time": "2025-01-01T00:00:00+00:00"},
+                {"time": "2025-01-01T00:10:00+00:00"},
+            ]
+            markers = monitor.chart_signal_markers(
+                journal_path, "TEST", history
+            )
+            current_strategy_markers = monitor.chart_signal_markers(
+                journal_path, "TEST", history, "M5:scalping:v2"
+            )
+        self.assertEqual(len(markers), 2)
+        self.assertEqual(markers[0]["kind"], "SIGNAL")
+        self.assertEqual(markers[0]["direction"], "BUY")
+        self.assertEqual(markers[0]["price"], 100.0)
+        self.assertEqual(markers[0]["timeframe"], "M5")
+        self.assertEqual(markers[1]["direction"], "SELL")
+        self.assertEqual(markers[1]["timeframe"], "M15")
+        self.assertEqual(len(current_strategy_markers), 1)
+        self.assertEqual(current_strategy_markers[0]["direction"], "BUY")
+
+    def test_historical_chart_markers_recompute_each_closed_bar_signal(self) -> None:
+        times = pd.date_range("2025-01-01", periods=13, freq="5min", tz="UTC")
+        rates = pd.DataFrame(
+            {
+                "time": times,
+                "open": np.arange(100.0, 113.0),
+                "high": np.arange(101.0, 114.0),
+                "low": np.arange(99.0, 112.0),
+                "close": np.arange(100.0, 113.0),
+                "tick_volume": np.ones(13),
+                "spread": np.ones(13),
+            }
+        )
+        higher_rates = rates.drop(columns="spread").copy()
+        config = Config(
+            slow_ema_period=3,
+            structure_lookback=3,
+            swing_strength=1,
+            volume_period=2,
+            scalping_signal_mode=True,
+            signal_cooldown_bars=3,
+        )
+
+        def setup_for_bar(
+            analysis_rates: pd.DataFrame,
+            higher_rates: pd.DataFrame,
+            spread_points: float,
+            selected_config: Config,
+        ) -> SimpleNamespace:
+            signal_bar = analysis_rates.iloc[-2]
+            direction = {108.0: "BUY", 110.0: "SELL"}.get(
+                float(signal_bar["close"]), "NO TRADE"
+            )
+            return SimpleNamespace(
+                status=direction,
+                bar_time=signal_bar["time"],
+                entry=float(signal_bar["close"]),
+                score=80,
+            )
+
+        with patch.object(
+            monitor, "_analyze_latest_indicators", side_effect=setup_for_bar
+        ):
+            markers = monitor.historical_chart_signal_markers(
+                rates, higher_rates, "M5", config
+            )
+
+        self.assertEqual(
+            [(marker["bar_time"], marker["direction"]) for marker in markers],
+            [
+                (times[8].isoformat(), "BUY"),
+                (times[10].isoformat(), "SELL"),
+            ],
+        )
+
+    def test_chart_trade_markers_read_entries_for_visible_symbol_and_history(self) -> None:
+        start = datetime(2025, 1, 1, tzinfo=monitor.timezone.utc)
+        now = datetime(2025, 1, 1, 0, 20, tzinfo=monitor.timezone.utc)
+        matching_deal = SimpleNamespace(
+            symbol="TEST",
+            entry=0,
+            type=0,
+            time=int(datetime(2025, 1, 1, 0, 7, tzinfo=monitor.timezone.utc).timestamp()),
+            price=100.5,
+            volume=0.1,
+            ticket=123,
+        )
+        forming_candle_deal = SimpleNamespace(
+            symbol="TEST",
+            entry=0,
+            type=1,
+            time=int(datetime(2025, 1, 1, 0, 15, tzinfo=monitor.timezone.utc).timestamp()),
+            price=99.5,
+            volume=0.2,
+            ticket=126,
+        )
+        exit_deal = SimpleNamespace(
+            symbol="TEST", entry=1, type=1, time=matching_deal.time,
+            price=101.0, volume=0.1, ticket=124,
+        )
+        other_symbol_deal = SimpleNamespace(
+            symbol="OTHER", entry=0, type=0, time=matching_deal.time,
+            price=101.0, volume=0.1, ticket=125,
+        )
+        with (
+            patch.object(monitor.mt5, "DEAL_ENTRY_IN", 0, create=True),
+            patch.object(monitor.mt5, "DEAL_ENTRY_INOUT", 2, create=True),
+            patch.object(monitor.mt5, "DEAL_TYPE_BUY", 0, create=True),
+            patch.object(monitor.mt5, "DEAL_TYPE_SELL", 1, create=True),
+            patch.object(
+                monitor.mt5,
+                "history_deals_get",
+                return_value=(
+                    matching_deal,
+                    forming_candle_deal,
+                    exit_deal,
+                    other_symbol_deal,
+                ),
+            ) as get_deals,
+        ):
+            markers = monitor.chart_trade_markers(
+                "TEST",
+                [
+                    {"time": start.isoformat()},
+                    {"time": datetime(2025, 1, 1, 0, 10, tzinfo=monitor.timezone.utc).isoformat()},
+                ],
+                now,
+            )
+        self.assertEqual(len(markers), 2)
+        self.assertEqual(markers[0]["kind"], "ORDER")
+        self.assertEqual(markers[0]["direction"], "BUY")
+        self.assertEqual(markers[0]["price"], 100.5)
+        self.assertEqual(markers[1]["direction"], "SELL")
+        self.assertEqual(markers[1]["price"], 99.5)
+        get_deals.assert_called_once_with(start, now)
 
     def test_dashboard_symbol_endpoint_validates_and_selects_only_allowed_symbol(self) -> None:
         server, state, lock = create_dashboard_server(0)
@@ -611,16 +803,45 @@ class IndicatorTests(unittest.TestCase):
         self.assertEqual((scalping.fast_ema_period, scalping.slow_ema_period), (9, 21))
         self.assertEqual(scalping.rsi_period, 9)
         self.assertEqual(scalping.target2_risk_reward, 1.2)
+        self.assertEqual(scalping.target3_risk_reward, 1.6)
+        self.assertEqual(trend.target3_risk_reward, 3.0)
         self.assertEqual(scalping.swing_strength, 2)
         self.assertEqual(scalping.structure_lookback, 60)
         self.assertTrue(scalping.allow_rsi_momentum_pullback)
+        self.assertTrue(scalping.scalping_signal_mode)
+        self.assertEqual(scalping.signal_cooldown_bars, 3)
         self.assertFalse(trend.allow_rsi_momentum_pullback)
         self.assertEqual(monitor.journal_timeframe_scope("M5", "trend"), "M5")
         self.assertEqual(
-            monitor.journal_timeframe_scope("M5", "scalping"), "M5:scalping"
+            monitor.journal_timeframe_scope("M5", "scalping"),
+            "M5:scalping:v2",
         )
         with self.assertRaises(ValueError):
             monitor.config_for_mode(trend, "unknown")
+
+    def test_target_levels_follow_configured_risk_reward_for_buy_and_sell(self) -> None:
+        trend = Config()
+        buy_targets = monitor.calculate_target_prices(
+            True, entry=100.0, stop=98.0, config=trend
+        )
+        sell_targets = monitor.calculate_target_prices(
+            False, entry=100.0, stop=102.0, config=trend
+        )
+        self.assertEqual(buy_targets, (102.0, 104.0, 106.0))
+        self.assertEqual(sell_targets, (98.0, 96.0, 94.0))
+
+        scalping = monitor.config_for_mode(trend, "scalping")
+        scalping_targets = monitor.calculate_target_prices(
+            True, entry=100.0, stop=98.0, config=scalping
+        )
+        for actual, expected in zip(scalping_targets, (101.6, 102.4, 103.2)):
+            self.assertAlmostEqual(actual, expected)
+
+        invalid_config = replace(trend, target3_risk_reward=2.0)
+        with self.assertRaisesRegex(ValueError, "rasio TP1/TP2/TP3"):
+            monitor.calculate_target_prices(
+                True, entry=100.0, stop=98.0, config=invalid_config
+            )
 
     def test_scalping_pullback_accepts_continuation_not_only_rsi_midline_cross(self) -> None:
         self.assertTrue(
@@ -638,6 +859,82 @@ class IndicatorTests(unittest.TestCase):
         self.assertFalse(
             monitor.pullback_momentum_valid(False, 55, 56, 99, 100)
         )
+
+    def test_scalping_setup_uses_trend_pullback_and_momentum_trigger(self) -> None:
+        times = pd.date_range("2025-01-01", periods=10, freq="5min", tz="UTC")
+        rows = []
+        for index, timestamp in enumerate(times):
+            close = 100.0 + index * 0.1
+            rows.append(
+                {
+                    "time": timestamp,
+                    "open": close - 0.1,
+                    "high": close + 0.4,
+                    "low": close - 0.4,
+                    "close": close,
+                    "tick_volume": 100.0,
+                    "ema_fast": 100.0 + index * 0.05,
+                    "ema_slow": 99.0 + index * 0.02,
+                    "rsi": 54.0,
+                    "atr": 1.0,
+                    "adx": 20.0,
+                    "bands_middle": 100.0,
+                    "bands_upper": 101.0,
+                    "bands_lower": 99.0,
+                    "macd": 0.2,
+                    "macd_signal": 0.1,
+                    "stochastic_k": 60.0,
+                }
+            )
+        rows[5]["low"] = 99.0
+        rows[6]["low"] = 99.0
+        rows[7]["low"] = 99.0
+        rows[8].update(
+            {
+                "open": 100.4,
+                "high": 101.0,
+                "low": 100.1,
+                "close": 100.8,
+                "ema_fast": 100.5,
+                "ema_slow": 99.2,
+                "rsi": 58.0,
+            }
+        )
+        config = replace(
+            Config(),
+            slow_ema_period=3,
+            structure_lookback=3,
+            swing_strength=1,
+            volume_period=2,
+            scalping_signal_mode=True,
+            min_adx=15.0,
+        )
+        with patch.object(
+            monitor, "get_higher_timeframe_trend", return_value=(True, False)
+        ):
+            setup = monitor._analyze_latest_indicators(
+                pd.DataFrame(rows), pd.DataFrame(), 10.0, config
+            )
+        self.assertEqual(setup.status, "BUY")
+        self.assertEqual(setup.entry, 100.8)
+        self.assertTrue(setup.components["Candle pemicu"])
+        self.assertTrue(setup.components["Arah M15"])
+
+    def test_signal_cooldown_suppresses_repeats_and_rearms_after_reset(self) -> None:
+        state: dict[str, Any] = {
+            "last_direction": None,
+            "last_signal_index": -3,
+            "armed": True,
+        }
+        self.assertTrue(monitor.signal_cooldown_allows("BUY", 0, state, 3))
+        self.assertFalse(monitor.signal_cooldown_allows("BUY", 1, state, 3))
+        self.assertFalse(monitor.signal_cooldown_allows("BUY", 2, state, 3))
+        self.assertTrue(monitor.signal_cooldown_allows("BUY", 3, state, 3))
+        self.assertFalse(
+            monitor.signal_cooldown_allows("NO TRADE", 4, state, 3)
+        )
+        self.assertTrue(monitor.signal_cooldown_allows("BUY", 5, state, 3))
+        self.assertTrue(monitor.signal_cooldown_allows("SELL", 6, state, 3))
 
     def test_auto_pilot_sizes_volume_down_to_risk_and_refuses_broker_minimum_overrisk(self) -> None:
         setup = monitor.Setup(
@@ -949,6 +1246,22 @@ class IndicatorTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertFalse(state["auto_pilot_enabled"])
 
+            with lock:
+                state["requested_strategy_mode"] = "scalping"
+            connection.request(
+                "POST",
+                "/api/auto-pilot",
+                body=json.dumps(
+                    {"enabled": True, "confirm": "AKTIFKAN AUTO PILOT"}
+                ),
+                headers=headers,
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read())
+            self.assertEqual(response.status, 409)
+            self.assertIn("manual-only", payload["message"])
+            self.assertFalse(state["auto_pilot_enabled"])
+
             connection.request(
                 "POST",
                 "/api/auto-pilot-settings",
@@ -997,6 +1310,74 @@ class IndicatorTests(unittest.TestCase):
         self.assertEqual(result["pending_orders"], 0)
         self.assertEqual(result["positions"], [])
 
+    def test_manual_order_endpoint_is_available_without_startup_order_flag_or_levels(self) -> None:
+        server, state, lock = create_dashboard_server(0)
+        state["symbol"] = "TEST"
+        state["actions_enabled"] = False
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            connection = http.client.HTTPConnection(host, port, timeout=3)
+            connection.request("GET", "/")
+            page = connection.getresponse()
+            token = re.search(
+                r'const DASHBOARD_TOKEN = "([^"]+)"',
+                page.read().decode("utf-8"),
+            ).group(1)
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": f"http://{host}:{port}",
+                "X-Dashboard-Token": token,
+            }
+            result = SimpleNamespace(
+                retcode=monitor.mt5.TRADE_RETCODE_DONE,
+                order=654,
+                deal=655,
+                comment="done",
+            )
+            with (
+                patch.object(monitor, "get_spread_points", return_value=1.0),
+                patch.object(
+                    monitor,
+                    "prepare_manual_order",
+                    return_value=(
+                        {"action": "deal", "sl": 0.0, "tp": 0.0},
+                        "Tanpa SL; risiko tidak dibatasi. Tanpa TP.",
+                        None,
+                    ),
+                ),
+                patch.object(monitor.mt5, "order_send", return_value=result) as send,
+            ):
+                connection.request(
+                    "POST",
+                    "/api/manual-order",
+                    body=json.dumps(
+                        {
+                            "direction": "BUY",
+                            "volume": 0.1,
+                            "stop": None,
+                            "target": None,
+                            "confirm": "KIRIM MANUAL BUY",
+                        }
+                    ),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["ok"])
+            self.assertIn("risiko tidak dibatasi", payload["message"])
+            send.assert_called_once_with(
+                {"action": "deal", "sl": 0.0, "tp": 0.0}
+            )
+            self.assertFalse(state["actions_enabled"])
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_local_dashboard_serves_page_and_json_status(self) -> None:
         server, state, lock = create_dashboard_server(0)
         state["status"] = "NO TRADE"
@@ -1016,9 +1397,16 @@ class IndicatorTests(unittest.TestCase):
             self.assertIn("Analisis Mandiri", html)
             self.assertIn("Jurnal & hasil sinyal", html)
             self.assertIn("Backtest historis", html)
+            self.assertIn("id=\"signal-strength-label\"", html)
+            self.assertIn("BUY — / SELL —", html)
             self.assertIn("Open order manual · di luar aturan sinyal", html)
+            self.assertIn("SL/TP opsional", html)
+            self.assertIn("PERINGATAN POSISI", html)
             self.assertIn("BUY sinyal", html)
             self.assertIn("SELL sinyal", html)
+            self.assertIn("EKSPERIMENTAL", html)
+            self.assertIn("LIVE preview", html)
+            self.assertIn("chart-marker-status", html)
             self.assertIn('value="3000"', html)
             self.assertIn('id="strategy-mode"', html)
             self.assertIn('id="autopilot-toggle"', html)
@@ -1034,6 +1422,8 @@ class IndicatorTests(unittest.TestCase):
             self.assertEqual(payload["symbol"], "TEST")
             self.assertEqual(payload["setup"]["score"], 70)
             self.assertEqual(payload["journal"]["total_signals"], 0)
+            self.assertEqual(payload["chart_markers"], [])
+            self.assertIsNone(payload["chart_markers_error"])
             self.assertFalse(payload["actions_enabled"])
             connection.close()
 
@@ -1298,6 +1688,8 @@ class IndicatorTests(unittest.TestCase):
             state["symbol"] = "TEST"
             state["status"] = "NO TRADE"
             state["setup"] = None
+            state["strategy_mode"] = "scalping"
+            state["account"] = {"trade_mode": "DEMO"}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -1319,7 +1711,6 @@ class IndicatorTests(unittest.TestCase):
                 "volume": 0.1,
                 "stop": 99.0,
                 "target": 102.0,
-                "confirm": "KIRIM MANUAL BUY",
             }
             result = SimpleNamespace(
                 retcode=monitor.mt5.TRADE_RETCODE_DONE,
@@ -1328,6 +1719,13 @@ class IndicatorTests(unittest.TestCase):
                 comment="done",
             )
             with (
+                patch.object(
+                    monitor.mt5,
+                    "account_info",
+                    return_value=SimpleNamespace(
+                        trade_mode=monitor.mt5.ACCOUNT_TRADE_MODE_DEMO
+                    ),
+                ),
                 patch.object(monitor, "get_spread_points", return_value=1),
                 patch.object(
                     monitor,
@@ -1354,6 +1752,21 @@ class IndicatorTests(unittest.TestCase):
                 send.assert_called_once_with({"action": "deal"})
 
                 with lock:
+                    state["strategy_mode"] = "trend"
+                connection.request(
+                    "POST",
+                    "/api/manual-order",
+                    body=json.dumps(body),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                self.assertEqual(response.status, 400)
+                self.assertIn("Konfirmasi order manual", payload["message"])
+                send.assert_called_once()
+
+                body["confirm"] = "KIRIM MANUAL BUY"
+                with lock:
                     state["auto_pilot_enabled"] = True
                 connection.request(
                     "POST",
@@ -1366,6 +1779,145 @@ class IndicatorTests(unittest.TestCase):
                 self.assertEqual(response.status, 409)
                 self.assertIn("Matikan Auto Pilot", payload["message"])
                 send.assert_called_once()
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_scalping_demo_can_close_position_without_confirmation(self) -> None:
+        server, state, lock = create_dashboard_server(0)
+        with lock:
+            state["strategy_mode"] = "scalping"
+            state["account"] = {"trade_mode": "DEMO"}
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            connection = http.client.HTTPConnection(host, port, timeout=3)
+            connection.request("GET", "/")
+            page = connection.getresponse()
+            token = re.search(
+                r'const DASHBOARD_TOKEN = "([^"]+)"',
+                page.read().decode("utf-8"),
+            ).group(1)
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": f"http://{host}:{port}",
+                "X-Dashboard-Token": token,
+            }
+            with (
+                patch.object(
+                    monitor.mt5,
+                    "account_info",
+                    return_value=SimpleNamespace(
+                        trade_mode=monitor.mt5.ACCOUNT_TRADE_MODE_DEMO
+                    ),
+                ),
+                patch.object(
+                    monitor,
+                    "close_position_by_ticket",
+                    return_value=(True, "Instruksi tutup dikirim untuk ticket 321."),
+                ) as close_position,
+            ):
+                connection.request(
+                    "POST",
+                    "/api/close-position",
+                    body=json.dumps({"ticket": 321}),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["ok"])
+            close_position.assert_called_once_with(321, 20)
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_scalping_demo_signal_order_does_not_require_confirmation(self) -> None:
+        server, state, lock = create_dashboard_server(0)
+        with lock:
+            state["actions_enabled"] = True
+            state["strategy_mode"] = "scalping"
+            state["account"] = {"trade_mode": "DEMO"}
+            state["symbol"] = "TEST"
+            state["status"] = "BUY"
+            state["setup"] = {
+                "bar_time": "2025-01-01T00:00:00+00:00",
+                "status": "BUY",
+                "trend": "BULLISH MTF",
+                "structure": "BOS bullish",
+                "score": 80,
+                "buy_score": 80,
+                "sell_score": 0,
+                "rsi": 55.0,
+                "adx": 25.0,
+                "band_width_percent": 1.0,
+                "relative_volume": 1.5,
+                "atr": 1.0,
+                "spread_points": 2.0,
+                "macd": 0.2,
+                "macd_signal": 0.1,
+                "stochastic_k": 60.0,
+                "components": {},
+                "entry": 100.0,
+                "stop": 99.0,
+                "target1": 101.0,
+                "target2": 102.0,
+                "target3": 103.0,
+            }
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            connection = http.client.HTTPConnection(host, port, timeout=3)
+            connection.request("GET", "/")
+            page = connection.getresponse()
+            token = re.search(
+                r'const DASHBOARD_TOKEN = "([^"]+)"',
+                page.read().decode("utf-8"),
+            ).group(1)
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": f"http://{host}:{port}",
+                "X-Dashboard-Token": token,
+            }
+            result = SimpleNamespace(
+                retcode=monitor.mt5.TRADE_RETCODE_DONE,
+                order=789,
+                deal=790,
+                comment="done",
+            )
+            with (
+                patch.object(
+                    monitor.mt5,
+                    "account_info",
+                    return_value=SimpleNamespace(
+                        trade_mode=monitor.mt5.ACCOUNT_TRADE_MODE_DEMO
+                    ),
+                ),
+                patch.object(monitor, "get_spread_points", return_value=1.0),
+                patch.object(
+                    monitor,
+                    "prepare_signal_order",
+                    return_value=({"action": "deal"}, "risk ok", 0.2),
+                ) as prepare,
+                patch.object(monitor.mt5, "order_send", return_value=result) as send,
+            ):
+                connection.request(
+                    "POST",
+                    "/api/order",
+                    body=json.dumps({"volume": 0.1}),
+                    headers=headers,
+                )
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(state["last_order_bar"], state["setup"]["bar_time"])
+            prepare.assert_called_once()
+            send.assert_called_once_with({"action": "deal"})
             connection.close()
         finally:
             server.shutdown()
@@ -1514,6 +2066,20 @@ class IndicatorTests(unittest.TestCase):
         self.assertTrue(is_valid_volume(0.05, symbol_info))
         self.assertFalse(is_valid_volume(0.015, symbol_info))
         self.assertFalse(is_valid_volume(10.01, symbol_info))
+
+    def test_order_filling_type_maps_symbol_flags_to_order_constants(self) -> None:
+        self.assertEqual(
+            monitor.order_filling_type(monitor.MT5_SYMBOL_FILLING_IOC_FLAG),
+            monitor.mt5.ORDER_FILLING_IOC,
+        )
+        self.assertEqual(
+            monitor.order_filling_type(monitor.MT5_SYMBOL_FILLING_FOK_FLAG),
+            monitor.mt5.ORDER_FILLING_FOK,
+        )
+        self.assertEqual(
+            monitor.order_filling_type(0),
+            monitor.mt5.ORDER_FILLING_RETURN,
+        )
 
     def test_indicator_calculation_produces_expected_columns(self) -> None:
         config = Config(
@@ -1934,6 +2500,14 @@ class IndicatorTests(unittest.TestCase):
         )
         self.assertTrue(np.isfinite(setup.atr))
         self.assertIsInstance(json.loads(json.dumps(setup.components)), dict)
+        if setup.status in ("BUY", "SELL"):
+            self.assertIsNotNone(setup.target3)
+            self.assertLess(
+                abs(setup.entry - setup.target2),
+                abs(setup.entry - setup.target3),
+            )
+        else:
+            self.assertIsNone(setup.target3)
 
     def test_higher_timeframe_confirmation_ignores_unclosed_and_future_bars(self) -> None:
         config = Config(fast_ema_period=3, slow_ema_period=5)

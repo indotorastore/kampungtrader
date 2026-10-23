@@ -64,6 +64,8 @@ TELEGRAM_SETTINGS_PATH = Path(__file__).with_name("atlas_telegram_settings.bin")
 GEMINI_ENV_PATH = Path(__file__).with_name(".env")
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+MT5_SYMBOL_FILLING_FOK_FLAG = 1
+MT5_SYMBOL_FILLING_IOC_FLAG = 2
 ECONOMIC_CALENDAR_URL = (
     "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 )
@@ -155,6 +157,7 @@ class Config:
     max_stop_atr: float = 3.0
     target1_risk_reward: float = 1.0
     target2_risk_reward: float = 2.0
+    target3_risk_reward: float = 3.0
     use_session_filter: bool = False
     session_start_hour: int = 7
     session_end_hour: int = 17
@@ -162,6 +165,8 @@ class Config:
     max_spread_points: float = 0.0
     max_risk_percent: float = 1.0
     history_bars: int = 3000
+    scalping_signal_mode: bool = False
+    signal_cooldown_bars: int = 0
 
 
 @dataclass(frozen=True)
@@ -187,6 +192,7 @@ class Setup:
     stop: float | None = None
     target1: float | None = None
     target2: float | None = None
+    target3: float | None = None
 
 
 def config_for_mode(config: Config, mode: str) -> Config:
@@ -216,6 +222,9 @@ def config_for_mode(config: Config, mode: str) -> Config:
         max_stop_atr=2.0,
         target1_risk_reward=0.8,
         target2_risk_reward=1.2,
+        target3_risk_reward=1.6,
+        scalping_signal_mode=True,
+        signal_cooldown_bars=3,
     )
 
 
@@ -500,15 +509,59 @@ def calculate_stop(
     return min(atr_stop, structural_stop) if is_buy else max(atr_stop, structural_stop)
 
 
+def calculate_target_prices(
+    is_buy: bool,
+    entry: float,
+    stop: float,
+    config: Config,
+) -> tuple[float, float, float]:
+    risk = abs(entry - stop)
+    ratios = (
+        config.target1_risk_reward,
+        config.target2_risk_reward,
+        config.target3_risk_reward,
+    )
+    if (
+        not np.isfinite(entry)
+        or not np.isfinite(stop)
+        or not np.isfinite(risk)
+        or risk <= 0.0
+        or any(not np.isfinite(ratio) or ratio <= 0.0 for ratio in ratios)
+        or not ratios[0] < ratios[1] < ratios[2]
+    ):
+        raise ValueError("Entry, stop, dan rasio TP1/TP2/TP3 tidak valid.")
+    direction = 1.0 if is_buy else -1.0
+    return (
+        float(entry + direction * risk * ratios[0]),
+        float(entry + direction * risk * ratios[1]),
+        float(entry + direction * risk * ratios[2]),
+    )
+
+
 def analyze_latest(
     chart_rates: pd.DataFrame,
     higher_rates: pd.DataFrame,
     spread_points: float,
     config: Config,
+    include_forming: bool = False,
 ) -> Setup:
     chart = calculate_indicators(chart_rates, config)
     higher = calculate_indicators(higher_rates, config)
-    closed = chart.iloc[:-1].reset_index(drop=True)
+    return _analyze_latest_indicators(
+        chart, higher, spread_points, config, include_forming=include_forming
+    )
+
+
+def _analyze_latest_indicators(
+    chart: pd.DataFrame,
+    higher: pd.DataFrame,
+    spread_points: float,
+    config: Config,
+    include_forming: bool = False,
+) -> Setup:
+    closed = (
+        chart if include_forming else chart.iloc[:-1]
+    ).reset_index(drop=True)
     if len(closed) < max(
         config.slow_ema_period + 2,
         config.structure_lookback + config.swing_strength * 2 + 3,
@@ -531,6 +584,10 @@ def analyze_latest(
         ]
     ].isna().any():
         raise ValueError("Indikator belum siap; ambil lebih banyak data historis.")
+    if config.scalping_signal_mode:
+        return _analyze_scalping_latest(
+            closed, higher, shift, spread_points, config
+        )
 
     local_bull = (
         current["ema_fast"] > current["ema_slow"]
@@ -759,20 +816,13 @@ def analyze_latest(
     stop: float | None = None
     target1: float | None = None
     target2: float | None = None
+    target3: float | None = None
     if status in ("BUY", "SELL"):
         is_buy = status == "BUY"
         entry = float(current["close"])
         stop = buy_stop if is_buy else sell_stop
-        risk = abs(entry - stop)
-        target1 = (
-            entry + risk * config.target1_risk_reward
-            if is_buy
-            else entry - risk * config.target1_risk_reward
-        )
-        target2 = (
-            entry + risk * config.target2_risk_reward
-            if is_buy
-            else entry - risk * config.target2_risk_reward
+        target1, target2, target3 = calculate_target_prices(
+            is_buy, entry, stop, config
         )
 
     return Setup(
@@ -797,7 +847,226 @@ def analyze_latest(
         stop=stop,
         target1=target1,
         target2=target2,
+        target3=target3,
     )
+
+
+def _analyze_scalping_latest(
+    closed: pd.DataFrame,
+    higher: pd.DataFrame,
+    shift: int,
+    spread_points: float,
+    config: Config,
+) -> Setup:
+    current = closed.iloc[shift]
+    previous = closed.iloc[shift - 1]
+    local_bull = bool(
+        current["ema_fast"] > current["ema_slow"]
+        and current["ema_slow"] >= previous["ema_slow"]
+    )
+    local_bear = bool(
+        current["ema_fast"] < current["ema_slow"]
+        and current["ema_slow"] <= previous["ema_slow"]
+    )
+    higher_bull, higher_bear = get_higher_timeframe_trend(
+        current["time"], higher
+    )
+
+    pullback_start = max(0, shift - config.pullback_lookback)
+    pullback_bars = closed.iloc[pullback_start:shift]
+    bullish_pullback = bool(
+        len(pullback_bars)
+        and (
+            pullback_bars["low"]
+            <= pullback_bars["ema_fast"]
+            + pullback_bars["atr"] * config.pullback_atr_zone
+        ).any()
+        and current["close"]
+        >= current["ema_slow"] - current["atr"] * 0.5
+    )
+    bearish_pullback = bool(
+        len(pullback_bars)
+        and (
+            pullback_bars["high"]
+            >= pullback_bars["ema_fast"]
+            - pullback_bars["atr"] * config.pullback_atr_zone
+        ).any()
+        and current["close"]
+        <= current["ema_slow"] + current["atr"] * 0.5
+    )
+    bullish_trigger = bool(
+        current["close"] > current["open"]
+        and current["close"] > current["ema_fast"]
+        and current["close"] > previous["close"]
+        and current["close"] - current["ema_fast"] <= current["atr"] * 0.8
+    )
+    bearish_trigger = bool(
+        current["close"] < current["open"]
+        and current["close"] < current["ema_fast"]
+        and current["close"] < previous["close"]
+        and current["ema_fast"] - current["close"] <= current["atr"] * 0.8
+    )
+    bullish_momentum = bool(
+        current["rsi"] >= 52.0 and current["rsi"] > previous["rsi"]
+    )
+    bearish_momentum = bool(
+        current["rsi"] <= 48.0 and current["rsi"] < previous["rsi"]
+    )
+    regime_valid = bool(current["adx"] >= config.min_adx and current["atr"] > 0.0)
+    session_valid = session_is_valid(current["time"], config)
+
+    point = float(current["atr"])
+    swing_low = (
+        float(pullback_bars["low"].min()) if len(pullback_bars) else None
+    )
+    swing_high = (
+        float(pullback_bars["high"].max()) if len(pullback_bars) else None
+    )
+    buy_stop = calculate_stop(
+        True, float(current["close"]), point, swing_low, config
+    )
+    sell_stop = calculate_stop(
+        False, float(current["close"]), point, swing_high, config
+    )
+    buy_risk_atr = abs(float(current["close"]) - buy_stop) / point
+    sell_risk_atr = abs(float(current["close"]) - sell_stop) / point
+    buy_risk_valid = 0.0 < buy_risk_atr <= config.max_stop_atr
+    sell_risk_valid = 0.0 < sell_risk_atr <= config.max_stop_atr
+
+    buy_score = (
+        (25 if local_bull else 0)
+        + (20 if higher_bull else 0)
+        + (20 if bullish_pullback else 0)
+        + (20 if bullish_trigger else 0)
+        + (10 if bullish_momentum else 0)
+        + (5 if regime_valid else 0)
+    )
+    sell_score = (
+        (25 if local_bear else 0)
+        + (20 if higher_bear else 0)
+        + (20 if bearish_pullback else 0)
+        + (20 if bearish_trigger else 0)
+        + (10 if bearish_momentum else 0)
+        + (5 if regime_valid else 0)
+    )
+    buy_signal = (
+        local_bull
+        and higher_bull
+        and bullish_pullback
+        and bullish_trigger
+        and bullish_momentum
+        and regime_valid
+        and session_valid
+        and buy_risk_valid
+    )
+    sell_signal = (
+        local_bear
+        and higher_bear
+        and bearish_pullback
+        and bearish_trigger
+        and bearish_momentum
+        and regime_valid
+        and session_valid
+        and sell_risk_valid
+    )
+    if config.max_spread_points > 0.0 and spread_points > config.max_spread_points:
+        status = "NO TRADE - spread"
+        buy_signal = False
+        sell_signal = False
+    elif buy_signal:
+        status = "BUY"
+    elif sell_signal:
+        status = "SELL"
+    elif local_bull and higher_bull:
+        status = "WATCH BUY"
+    elif local_bear and higher_bear:
+        status = "WATCH SELL"
+    else:
+        status = "NO TRADE - arah belum selaras"
+
+    direction_bull = (local_bull and higher_bull) or status == "WATCH BUY"
+    direction_bear = (local_bear and higher_bear) or status == "WATCH SELL"
+    trend = (
+        "BULLISH MTF" if local_bull and higher_bull
+        else "BEARISH MTF" if local_bear and higher_bear
+        else "MIXED / NO TRADE"
+    )
+    middle = float(current["bands_middle"])
+    band_width_percent = (
+        (float(current["bands_upper"]) - float(current["bands_lower"]))
+        / middle * 100.0
+        if middle else 0.0
+    )
+    relative_volume = relative_volume_at(closed, shift, config)
+    entry: float | None = None
+    stop: float | None = None
+    target1: float | None = None
+    target2: float | None = None
+    target3: float | None = None
+    if status in ("BUY", "SELL"):
+        is_buy = status == "BUY"
+        entry = float(current["close"])
+        stop = buy_stop if is_buy else sell_stop
+        target1, target2, target3 = calculate_target_prices(
+            is_buy, entry, stop, config
+        )
+
+    return Setup(
+        bar_time=current["time"],
+        status=status,
+        trend=trend,
+        structure="Pullback EMA" if bullish_pullback or bearish_pullback else "belum jelas",
+        score=buy_score if direction_bull else sell_score if direction_bear else max(buy_score, sell_score),
+        buy_score=buy_score,
+        sell_score=sell_score,
+        rsi=float(current["rsi"]),
+        adx=float(current["adx"]),
+        band_width_percent=band_width_percent,
+        relative_volume=relative_volume,
+        atr=float(current["atr"]),
+        spread_points=spread_points,
+        macd=float(current["macd"]),
+        macd_signal=float(current["macd_signal"]),
+        stochastic_k=float(current["stochastic_k"]),
+        components={
+            "Trend M5": local_bull or local_bear,
+            "Arah M15": higher_bull or higher_bear,
+            "Pullback EMA": bullish_pullback or bearish_pullback,
+            "Candle pemicu": bullish_trigger or bearish_trigger,
+            "Momentum RSI": bullish_momentum or bearish_momentum,
+            "Regime ADX": regime_valid,
+            "Filter sesi": session_valid,
+            "Risiko SL": buy_risk_valid if direction_bull else (
+                sell_risk_valid if direction_bear else False
+            ),
+        },
+        entry=entry,
+        stop=stop,
+        target1=target1,
+        target2=target2,
+        target3=target3,
+    )
+
+
+def signal_cooldown_allows(
+    direction: str,
+    bar_index: int,
+    state: dict[str, Any],
+    cooldown_bars: int,
+) -> bool:
+    if direction not in ("BUY", "SELL"):
+        state["armed"] = True
+        return False
+    if (
+        direction != state["last_direction"]
+        or state["armed"]
+        or bar_index - state["last_signal_index"] >= cooldown_bars
+    ):
+        state["last_direction"] = direction
+        state["last_signal_index"] = bar_index
+        state["armed"] = False
+        return True
+    return False
 
 
 def fetch_rates(symbol: str, timeframe: int, count: int) -> pd.DataFrame:
@@ -959,7 +1228,9 @@ def record_signal(
 def journal_timeframe_scope(timeframe: str, strategy_mode: str) -> str:
         if strategy_mode not in STRATEGY_MODES:
             raise ValueError(f"Mode strategi tidak didukung: {strategy_mode}")
-        return timeframe if strategy_mode == "trend" else f"{timeframe}:{strategy_mode}"
+        if strategy_mode == "trend":
+            return timeframe
+        return f"{timeframe}:scalping:v2"
 
 
 def update_signal_outcomes(
@@ -1144,6 +1415,195 @@ def signal_journal_snapshot(
         "summary": summary,
         "recent": recent,
     }
+
+
+def chart_signal_markers(
+    path: Path,
+    symbol: str,
+    history: list[dict[str, float | str]],
+    journal_scope: str | None = None,
+) -> list[dict[str, Any]]:
+    if not history:
+        return []
+    start_time = pd.Timestamp(history[0]["time"]).isoformat()
+    end_time = pd.Timestamp(history[-1]["time"]).isoformat()
+    initialize_signal_journal(path)
+    with closing(sqlite3.connect(path)) as connection:
+        if journal_scope is None:
+            rows = connection.execute(
+                """
+                SELECT bar_time, direction, entry_price, score, timeframe
+                FROM signals
+                WHERE symbol = ? AND bar_time >= ? AND bar_time <= ?
+                ORDER BY bar_time
+                """,
+                (symbol, start_time, end_time),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT bar_time, direction, entry_price, score, timeframe
+                FROM signals
+                WHERE symbol = ? AND timeframe = ?
+                    AND bar_time >= ? AND bar_time <= ?
+                ORDER BY bar_time
+                """,
+                (symbol, journal_scope, start_time, end_time),
+            ).fetchall()
+    return [
+        {
+            "kind": "SIGNAL",
+            "bar_time": str(bar_time),
+            "direction": str(direction),
+            "price": float(entry_price),
+            "score": int(score),
+            "timeframe": str(source_timeframe).split(":", maxsplit=1)[0],
+        }
+        for bar_time, direction, entry_price, score, source_timeframe in rows
+    ]
+
+
+def historical_chart_signal_markers(
+    rates: pd.DataFrame,
+    higher_rates: pd.DataFrame,
+    timeframe: str,
+    config: Config,
+    limit: int = 240,
+) -> list[dict[str, Any]]:
+    if timeframe not in TIMEFRAMES:
+        raise ValueError(f"Timeframe chart tidak didukung: {timeframe}")
+    if limit <= 0:
+        raise ValueError("Batas histori sinyal chart harus lebih besar dari nol.")
+    if "spread" not in rates.columns:
+        raise ValueError("Data chart tidak memiliki kolom spread untuk sinyal historis.")
+
+    minimum_bars = max(
+        config.slow_ema_period + 2,
+        config.structure_lookback + config.swing_strength * 2 + 3,
+        config.volume_period + 2,
+    )
+    chart_indicators = calculate_indicators(rates, config)
+    higher_indicators = calculate_indicators(higher_rates, config)
+    closed_rates = chart_indicators.iloc[:-1].reset_index(drop=True)
+    if len(closed_rates) < minimum_bars:
+        return []
+
+    visible_start_index = max(minimum_bars - 1, len(closed_rates) - limit)
+    first_signal_index = max(
+        minimum_bars - 1,
+        visible_start_index - config.signal_cooldown_bars - config.pullback_lookback,
+    )
+    bar_minutes = TIMEFRAMES[timeframe][1]
+    markers: list[dict[str, Any]] = []
+    cooldown_state: dict[str, Any] = {
+        "last_direction": None,
+        "last_signal_index": -config.signal_cooldown_bars,
+        "armed": True,
+    }
+    cooldown_bars = (
+        config.signal_cooldown_bars if config.scalping_signal_mode else 0
+    )
+    for signal_index in range(first_signal_index, len(closed_rates)):
+        signal_bar = closed_rates.iloc[signal_index]
+        forming_bar = signal_bar.copy()
+        forming_bar["time"] = signal_bar["time"] + pd.Timedelta(minutes=bar_minutes)
+        analysis_start = max(0, signal_index + 1 - minimum_bars)
+        analysis_rates = pd.concat(
+            [
+                closed_rates.iloc[analysis_start : signal_index + 1],
+                pd.DataFrame([forming_bar]),
+            ],
+            ignore_index=True,
+        )
+        setup = _analyze_latest_indicators(
+            analysis_rates,
+            higher_indicators,
+            float(signal_bar["spread"]),
+            config,
+        )
+        if setup.status not in ("BUY", "SELL") or setup.entry is None:
+            signal_cooldown_allows(
+                setup.status, signal_index, cooldown_state, cooldown_bars
+            )
+            continue
+        if not signal_cooldown_allows(
+            setup.status, signal_index, cooldown_state, cooldown_bars
+        ):
+            continue
+        if signal_index < visible_start_index:
+            continue
+        markers.append(
+            {
+                "kind": "SIGNAL",
+                "bar_time": setup.bar_time.isoformat(),
+                "direction": setup.status,
+                "price": float(setup.entry),
+                "score": int(setup.score),
+                "timeframe": timeframe,
+            }
+        )
+    return markers
+
+
+def merge_chart_signal_markers(
+    stored_markers: list[dict[str, Any]],
+    detected_markers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for marker in (*stored_markers, *detected_markers):
+        key = (
+            str(marker["bar_time"]),
+            str(marker["direction"]),
+            str(marker.get("timeframe", "")),
+        )
+        merged[key] = marker
+    return sorted(merged.values(), key=lambda marker: str(marker["bar_time"]))
+
+
+def chart_trade_markers(
+    symbol: str,
+    history: list[dict[str, float | str]],
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    if not history:
+        return []
+    start_time = pd.Timestamp(history[0]["time"]).to_pydatetime()
+    end_time = now or datetime.now(timezone.utc)
+    deals = mt5.history_deals_get(start_time, end_time)
+    if deals is None:
+        raise RuntimeError(
+            f"Gagal membaca riwayat order untuk grafik: {mt5.last_error()}"
+        )
+    start = pd.Timestamp(history[0]["time"])
+    end = pd.Timestamp(end_time)
+    markers: list[dict[str, Any]] = []
+    for deal in deals:
+        if (
+            str(getattr(deal, "symbol", "")) != symbol
+            or getattr(deal, "entry", None)
+            not in (mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_INOUT)
+            or getattr(deal, "type", None)
+            not in (mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL)
+        ):
+            continue
+        bar_time = pd.Timestamp(
+            datetime.fromtimestamp(int(deal.time), tz=timezone.utc)
+        )
+        if bar_time < start or bar_time > end:
+            continue
+        markers.append(
+            {
+                "kind": "ORDER",
+                "bar_time": bar_time.isoformat(),
+                "direction": (
+                    "BUY" if deal.type == mt5.DEAL_TYPE_BUY else "SELL"
+                ),
+                "price": float(deal.price),
+                "volume": float(deal.volume),
+                "ticket": int(deal.ticket),
+            }
+        )
+    return markers
 
 
 def simulate_backtest_exit(
@@ -1377,6 +1837,14 @@ def run_historical_backtest(
     }
     detected_signals = {"in_sample": 0, "out_of_sample": 0}
     skipped_risk = {"in_sample": 0, "out_of_sample": 0}
+    cooldown_state: dict[str, Any] = {
+        "last_direction": None,
+        "last_signal_index": -config.signal_cooldown_bars,
+        "armed": True,
+    }
+    cooldown_bars = (
+        config.signal_cooldown_bars if config.scalping_signal_mode else 0
+    )
     last_signal_index = len(data) - max(FORWARD_HORIZONS) - 1
     for signal_index in range(minimum_bars - 1, last_signal_index + 1):
         segment = "in_sample" if signal_index < split_index else "out_of_sample"
@@ -1395,6 +1863,19 @@ def run_historical_backtest(
         historical_spread = float(signal_bar["spread"])
         setup = analyze_latest(analysis_rates, higher_data, historical_spread, config)
         if setup.status not in ("BUY", "SELL"):
+            signal_cooldown_allows(
+                setup.status,
+                signal_index,
+                cooldown_state,
+                cooldown_bars,
+            )
+            continue
+        if not signal_cooldown_allows(
+            setup.status,
+            signal_index,
+            cooldown_state,
+            cooldown_bars,
+        ):
             continue
         detected_signals[segment] += 1
         if (
@@ -1555,6 +2036,14 @@ def is_valid_volume(volume: float, symbol_info: Any) -> bool:
     return abs(steps_from_minimum - round(steps_from_minimum)) <= 1e-8
 
 
+def order_filling_type(symbol_filling_mode: int) -> int:
+    if symbol_filling_mode & MT5_SYMBOL_FILLING_IOC_FLAG:
+        return mt5.ORDER_FILLING_IOC
+    if symbol_filling_mode & MT5_SYMBOL_FILLING_FOK_FLAG:
+        return mt5.ORDER_FILLING_FOK
+    return mt5.ORDER_FILLING_RETURN
+
+
 def account_snapshot() -> dict[str, Any]:
     account = mt5.account_info()
     terminal = mt5.terminal_info()
@@ -1690,16 +2179,19 @@ def prepare_market_order(
     direction: str,
     symbol: str,
     volume: float,
-    stop: float,
-    target: float,
+    stop: float | None,
+    target: float | None,
     config: Config,
     deviation_points: int,
     comment: str,
 ) -> tuple[dict[str, Any] | None, str, float | None]:
     if direction not in ("BUY", "SELL"):
         return None, "Arah order tidak valid.", None
-    if not np.isfinite(stop) or not np.isfinite(target) or stop <= 0 or target <= 0:
-        return None, "Level SL dan TP harus berupa harga positif yang valid.", None
+    for label, value in (("SL", stop), ("TP", target)):
+        if value is not None and (
+            not np.isfinite(value) or value <= 0
+        ):
+            return None, f"Level {label} harus berupa harga positif yang valid.", None
 
     symbol_info = mt5.symbol_info(symbol)
     tick = mt5.symbol_info_tick(symbol)
@@ -1725,23 +2217,38 @@ def prepare_market_order(
     is_buy = direction == "BUY"
     order_type = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL
     price = float(tick.ask if is_buy else tick.bid)
-    if (is_buy and not stop < price < target) or (
-        not is_buy and not target < price < stop
+    if (stop is not None and (stop >= price if is_buy else stop <= price)) or (
+        target is not None and (target <= price if is_buy else target >= price)
     ):
         return None, "SL/TP tidak lagi berada di sisi harga yang benar.", None
 
-    expected_loss = mt5.order_calc_profit(order_type, symbol, volume, price, stop)
-    if expected_loss is None or not np.isfinite(expected_loss) or expected_loss >= 0.0:
-        return None, f"Tidak dapat menghitung estimasi rugi di SL: {mt5.last_error()}", None
-    equity = float(account.equity)
-    if equity <= 0.0:
-        return None, "Equity akun tidak valid.", None
-    risk_percent = abs(float(expected_loss)) / equity * 100.0
-    if risk_percent > config.max_risk_percent:
-        return None, (
-            f"Estimasi risiko SL {risk_percent:.2f}% equity melewati batas "
-            f"{config.max_risk_percent:.2f}%."
-        ), risk_percent
+    risk_percent: float | None = None
+    risk_detail = "Tanpa SL; risiko tidak dibatasi."
+    if stop is not None:
+        expected_loss = mt5.order_calc_profit(
+            order_type, symbol, volume, price, stop
+        )
+        if (
+            expected_loss is None
+            or not np.isfinite(expected_loss)
+            or expected_loss >= 0.0
+        ):
+            return None, (
+                f"Tidak dapat menghitung estimasi rugi di SL: {mt5.last_error()}"
+            ), None
+        equity = float(account.equity)
+        if equity <= 0.0:
+            return None, "Equity akun tidak valid.", None
+        risk_percent = abs(float(expected_loss)) / equity * 100.0
+        if risk_percent > config.max_risk_percent:
+            return None, (
+                f"Estimasi risiko SL {risk_percent:.2f}% equity melewati batas "
+                f"{config.max_risk_percent:.2f}%."
+            ), risk_percent
+        risk_detail = (
+            f"Estimasi rugi SL {abs(float(expected_loss)):.2f} "
+            f"({risk_percent:.2f}% equity)"
+        )
 
     margin = mt5.order_calc_margin(order_type, symbol, volume, price)
     if margin is None or not np.isfinite(margin):
@@ -1749,26 +2256,19 @@ def prepare_market_order(
     if margin > float(account.margin_free):
         return None, "Margin perkiraan melebihi margin bebas.", risk_percent
 
-    filling_mode = (
-        mt5.ORDER_FILLING_IOC
-        if symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC
-        else mt5.ORDER_FILLING_FOK
-        if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK
-        else mt5.ORDER_FILLING_RETURN
-    )
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
         "volume": volume,
         "type": order_type,
         "price": round(price, symbol_info.digits),
-        "sl": round(stop, symbol_info.digits),
-        "tp": round(target, symbol_info.digits),
+        "sl": round(stop, symbol_info.digits) if stop is not None else 0.0,
+        "tp": round(target, symbol_info.digits) if target is not None else 0.0,
         "deviation": deviation_points,
         "magic": 20261022,
         "comment": comment,
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": filling_mode,
+        "type_filling": order_filling_type(int(symbol_info.filling_mode)),
     }
     check = mt5.order_check(request)
     if check is None:
@@ -1777,10 +2277,9 @@ def prepare_market_order(
         return None, (
             f"Pre-check menolak order (retcode {check.retcode}): {check.comment}"
         ), risk_percent
-    return request, (
-        f"Estimasi rugi SL {abs(float(expected_loss)):.2f} "
-        f"({risk_percent:.2f}% equity)"
-    ), risk_percent
+    if target is None:
+        risk_detail += " Tanpa TP; posisi tidak memiliki target take-profit."
+    return request, risk_detail, risk_percent
 
 
 def prepare_signal_order(
@@ -1808,8 +2307,8 @@ def prepare_manual_order(
     direction: str,
     symbol: str,
     volume: float,
-    stop: float,
-    target: float,
+    stop: float | None,
+    target: float | None,
     config: Config,
     deviation_points: int,
 ) -> tuple[dict[str, Any] | None, str, float | None]:
@@ -1943,13 +2442,7 @@ def close_position_by_ticket(ticket: int, deviation_points: int) -> tuple[bool, 
         "magic": 20261022,
         "comment": "AtlasManualClose",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": (
-            mt5.ORDER_FILLING_IOC
-            if symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC
-            else mt5.ORDER_FILLING_FOK
-            if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK
-            else mt5.ORDER_FILLING_RETURN
-        ),
+        "type_filling": order_filling_type(int(symbol_info.filling_mode)),
     }
     check = mt5.order_check(request)
     if check is None:
@@ -2149,7 +2642,8 @@ def print_setup(setup: Setup, symbol: str, timeframe: str, higher: str) -> None:
     if setup.entry is not None:
         print(
             f"Level referensi: Entry {setup.entry:.6g} | SL {setup.stop:.6g} | "
-            f"TP1 {setup.target1:.6g} | TP2 {setup.target2:.6g}"
+            f"TP1 {setup.target1:.6g} | TP2 {setup.target2:.6g} | "
+            f"TP3 {setup.target3:.6g}"
         )
     print("Level dan skor adalah referensi, bukan jaminan hasil.")
     if (
@@ -2675,6 +3169,8 @@ def create_dashboard_server(
         "updated_at": None,
         "setup": None,
         "history": [],
+        "chart_markers": [],
+        "chart_markers_error": None,
         "market": None,
         "timeframes": list(TIMEFRAMES),
         "account": None,
@@ -2798,6 +3294,18 @@ def create_dashboard_server(
             return payload
 
     class DashboardHandler(BaseHTTPRequestHandler):
+        def _fast_scalping_demo_actions(self) -> bool:
+            with lock:
+                is_scalping = state.get("strategy_mode") == "scalping"
+            if not is_scalping:
+                return False
+            with MT5_API_LOCK:
+                account = mt5.account_info()
+            return bool(
+                account is not None
+                and account.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
+            )
+
         def do_GET(self) -> None:
             if self.path == "/api/status":
                 with lock:
@@ -3238,6 +3746,21 @@ def create_dashboard_server(
                             },
                         )
                         return
+                    if (
+                        enabled
+                        and state["requested_strategy_mode"] == "scalping"
+                    ):
+                        self._send_json(
+                            409,
+                            {
+                                "ok": False,
+                                "message": (
+                                    "Mode scalping manual-only. Auto Pilot tidak "
+                                    "dapat diaktifkan; keputusan order tetap pada trader."
+                                ),
+                            },
+                        )
+                        return
                     if state["backtest"]["status"] in ("queued", "running"):
                         self._send_json(
                             409,
@@ -3432,6 +3955,8 @@ def create_dashboard_server(
                     state["status"] = "Mengganti pair; menunggu candle."
                     state["setup"] = None
                     state["history"] = []
+                    state["chart_markers"] = []
+                    state["chart_markers_error"] = None
                     state["market"] = None
                     state["journal"] = {
                         "symbol": symbol,
@@ -3584,7 +4109,10 @@ def create_dashboard_server(
 
             with lock:
                 actions_enabled = bool(state["actions_enabled"])
-            if not actions_enabled:
+            if not actions_enabled and self.path not in {
+                "/api/manual-order",
+                "/api/close-position",
+            }:
                 self._send_json(
                     403,
                     {
@@ -3617,15 +4145,26 @@ def create_dashboard_server(
             direction = body.get("direction")
             if direction not in ("BUY", "SELL"):
                 return {"ok": False, "message": "Arah order manual tidak valid."}, 400
-            if body.get("confirm") != f"KIRIM MANUAL {direction}":
+            if (
+                not self._fast_scalping_demo_actions()
+                and body.get("confirm") != f"KIRIM MANUAL {direction}"
+            ):
                 return {
                     "ok": False,
                     "message": "Konfirmasi order manual tidak cocok.",
                 }, 400
 
-            values: dict[str, float] = {}
+            values: dict[str, float | None] = {}
             for field in ("volume", "stop", "target"):
                 raw_value = body.get(field)
+                if raw_value is None:
+                    if field == "volume":
+                        return {
+                            "ok": False,
+                            "message": "Nilai volume harus berupa angka yang valid.",
+                        }, 400
+                    values[field] = None
+                    continue
                 if isinstance(raw_value, bool):
                     return {
                         "ok": False,
@@ -3644,6 +4183,12 @@ def create_dashboard_server(
                         "message": f"Nilai {field} harus lebih besar dari 0.",
                     }, 400
                 values[field] = value
+            volume = values["volume"]
+            if volume is None:
+                return {
+                    "ok": False,
+                    "message": "Nilai volume harus lebih besar dari 0.",
+                }, 400
 
             with lock:
                 symbol = str(state.get("symbol", ""))
@@ -3670,7 +4215,7 @@ def create_dashboard_server(
                     request, detail, risk_percent = prepare_manual_order(
                         direction,
                         symbol,
-                        values["volume"],
+                        volume,
                         values["stop"],
                         values["target"],
                         config,
@@ -3678,13 +4223,6 @@ def create_dashboard_server(
                     )
                     if request is None:
                         return {"ok": False, "message": detail}, 409
-                    if risk_percent is None:
-                        return {
-                            "ok": False,
-                            "message": (
-                                "Estimasi risiko tidak tersedia; order dibatalkan."
-                            ),
-                        }, 409
                     result = mt5.order_send(request)
                 except RuntimeError as error:
                     return {"ok": False, "message": str(error)}, 503
@@ -3708,7 +4246,11 @@ def create_dashboard_server(
             with lock:
                 state["last_action"] = (
                     f"Order manual {direction} diterima; ticket {result.order}, "
-                    f"estimasi risiko {risk_percent:.2f}% equity."
+                    + (
+                        f"estimasi risiko {risk_percent:.2f}% equity."
+                        if risk_percent is not None
+                        else "tanpa SL; risiko tidak dibatasi."
+                    )
                 )
             logging.warning(
                 "Dashboard mengirim order manual %s %s volume %s; order=%s deal=%s",
@@ -3766,7 +4308,10 @@ def create_dashboard_server(
             }, 200
 
         def _place_order(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-            if body.get("confirm") != "KIRIM":
+            if (
+                not self._fast_scalping_demo_actions()
+                and body.get("confirm") != "KIRIM"
+            ):
                 return {"ok": False, "message": "Konfirmasi order tidak cocok."}, 400
             try:
                 volume = float(body.get("volume"))
@@ -3864,7 +4409,15 @@ def create_dashboard_server(
                 ticket = int(body.get("ticket"))
             except (TypeError, ValueError):
                 return {"ok": False, "message": "Ticket posisi tidak valid."}, 400
-            if ticket <= 0 or body.get("confirm") != f"TUTUP {ticket}":
+            if ticket <= 0:
+                return {
+                    "ok": False,
+                    "message": "Ticket posisi tidak valid.",
+                }, 400
+            if (
+                not self._fast_scalping_demo_actions()
+                and body.get("confirm") != f"TUTUP {ticket}"
+            ):
                 return {
                     "ok": False,
                     "message": "Konfirmasi penutupan posisi tidak cocok.",
@@ -3906,7 +4459,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Monitor sinyal Pro Regime-Structure MT5; order nyata hanya tersedia "
-            "dengan opt-in eksplisit dan konfirmasi berulang."
+            "dengan opt-in eksplisit; aksi scalping DEMO tidak meminta dialog konfirmasi."
         )
     )
     parser.add_argument("--symbol", required=True, help="Nama simbol persis seperti di MT5.")
@@ -3933,7 +4486,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--enable-order-sending",
         action="store_true",
-        help="Opt in to real orders; still requires confirmation for each order.",
+        help="Opt in to signal orders; scalping DEMO orders skip confirmation dialogs.",
     )
     parser.add_argument(
         "--allow-auto-pilot",
@@ -4121,6 +4674,8 @@ def main() -> int:
         )
         last_closed_bar: tuple[str, str, pd.Timestamp] | None = None
         last_auto_risk_check = 0.0
+        last_chart_marker_refresh = 0.0
+        last_detected_signal_markers: list[dict[str, Any]] = []
 
         while True:
             auto_pilot_enabled = False
@@ -4307,6 +4862,7 @@ def main() -> int:
                         ] = selected_higher_timeframe
                         dashboard_state["displayed_strategy_mode"] = selected_mode
                         last_closed_bar = None
+                        last_detected_signal_markers = []
             if dashboard_state is None:
                 settings_changed = (
                     last_closed_bar is None
@@ -4334,6 +4890,28 @@ def main() -> int:
                 journal_scope = journal_timeframe_scope(
                     selected_timeframe, selected_mode
                 )
+                chart_history = build_dashboard_history(
+                    chart_rates, selected_config, include_forming=True
+                )
+                last_detected_signal_markers = historical_chart_signal_markers(
+                    chart_rates,
+                    higher_rates,
+                    selected_timeframe,
+                    selected_config,
+                )
+                if setup.status in ("BUY", "SELL") and not any(
+                    marker["bar_time"] == setup.bar_time.isoformat()
+                    and marker["direction"] == setup.status
+                    for marker in last_detected_signal_markers
+                ):
+                    setup = replace(
+                        setup,
+                        status="NO TRADE - cooldown",
+                        entry=None,
+                        stop=None,
+                        target1=None,
+                        target2=None,
+                    )
                 update_signal_outcomes(
                     SIGNAL_JOURNAL_PATH,
                     selected_symbol,
@@ -4354,9 +4932,24 @@ def main() -> int:
                 )
                 journal_data["timeframe"] = selected_timeframe
                 journal_data["strategy_mode"] = selected_mode
-                chart_history = build_dashboard_history(
-                    chart_rates, selected_config, include_forming=True
+                chart_markers = merge_chart_signal_markers(
+                    chart_signal_markers(
+                        SIGNAL_JOURNAL_PATH,
+                        selected_symbol,
+                        chart_history,
+                        journal_scope,
+                    ),
+                    last_detected_signal_markers,
                 )
+                chart_markers_error = None
+                try:
+                    with MT5_API_LOCK:
+                        chart_markers.extend(
+                            chart_trade_markers(selected_symbol, chart_history)
+                        )
+                except RuntimeError as error:
+                    chart_markers_error = str(error)
+                    logging.error("%s", chart_markers_error)
                 print_setup(
                     setup, selected_symbol, selected_timeframe, selected_higher_timeframe
                 )
@@ -4373,6 +4966,8 @@ def main() -> int:
                         dashboard_state["setup"]["bar_time"] = setup.bar_time.isoformat()
                         dashboard_state["setup"]["strategy_mode"] = selected_mode
                         dashboard_state["history"] = chart_history
+                        dashboard_state["chart_markers"] = chart_markers
+                        dashboard_state["chart_markers_error"] = chart_markers_error
                         dashboard_state["journal"] = journal_data
                         dashboard_state["error"] = None
                     if setup.status in ("BUY", "SELL"):
@@ -4409,7 +5004,9 @@ def main() -> int:
                                 f"Skor: {setup.score}/100\n"
                                 f"Entry: {setup.entry:.6g}\n"
                                 f"SL: {setup.stop:.6g}\n"
+                                f"TP1: {setup.target1:.6g}\n"
                                 f"TP2: {setup.target2:.6g}\n"
+                                f"TP3: {setup.target3:.6g}\n"
                                 f"Waktu candle (UTC): "
                                 f"{setup.bar_time.strftime('%Y-%m-%d %H:%M')}\n"
                                 "Ini notifikasi sinyal, bukan instruksi order."
@@ -4528,6 +5125,79 @@ def main() -> int:
                 live_history = build_dashboard_history(
                     live_rates, selected_config, include_forming=True
                 )
+                if time.monotonic() - last_chart_marker_refresh >= 5.0:
+                    last_chart_marker_refresh = time.monotonic()
+                    marker_refresh_error = None
+                    live_markers = merge_chart_signal_markers(
+                        chart_signal_markers(
+                            SIGNAL_JOURNAL_PATH,
+                            selected_symbol,
+                            live_history,
+                            journal_timeframe_scope(
+                                selected_timeframe, selected_mode
+                            ),
+                        ),
+                        last_detected_signal_markers,
+                    )
+                    if selected_config.scalping_signal_mode:
+                        preview_setup = analyze_latest(
+                            live_rates,
+                            higher_rates,
+                            live_market["spread_points"],
+                            selected_config,
+                            include_forming=True,
+                        )
+                        if preview_setup.status in ("BUY", "SELL"):
+                            same_direction_markers = [
+                                marker for marker in last_detected_signal_markers
+                                if marker["direction"] == preview_setup.status
+                            ]
+                            latest_same_direction = (
+                                same_direction_markers[-1]
+                                if same_direction_markers else None
+                            )
+                            bars_since_signal = (
+                                (
+                                    pd.Timestamp(live_rates.iloc[-1]["time"])
+                                    - pd.Timestamp(
+                                        latest_same_direction["bar_time"]
+                                    )
+                                ).total_seconds()
+                                / (TIMEFRAMES[selected_timeframe][1] * 60)
+                                if latest_same_direction else float("inf")
+                            )
+                            if (
+                                bars_since_signal
+                                >= selected_config.signal_cooldown_bars
+                            ):
+                                live_markers.append(
+                                    {
+                                        "kind": "PREVIEW",
+                                        "bar_time": preview_setup.bar_time.isoformat(),
+                                        "direction": preview_setup.status,
+                                        "price": float(preview_setup.entry),
+                                        "score": int(preview_setup.score),
+                                        "timeframe": selected_timeframe,
+                                    }
+                                )
+                    try:
+                        with MT5_API_LOCK:
+                            live_markers.extend(
+                                chart_trade_markers(selected_symbol, live_history)
+                            )
+                    except RuntimeError as error:
+                        marker_refresh_error = str(error)
+                        logging.error("%s", marker_refresh_error)
+                    with dashboard_lock:
+                        if (
+                            dashboard_state["requested_symbol"] == selected_symbol
+                            and dashboard_state["requested_timeframe"]
+                            == selected_timeframe
+                        ):
+                            dashboard_state["chart_markers"] = live_markers
+                            dashboard_state["chart_markers_error"] = (
+                                marker_refresh_error
+                            )
                 with dashboard_lock:
                     dashboard_state["history"] = live_history
                     dashboard_state["market"] = live_market

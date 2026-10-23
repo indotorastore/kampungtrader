@@ -7,14 +7,19 @@ Atlas adalah dashboard lokal untuk memantau analisis teknikal MetaTrader 5 (MT5)
 ## Fitur
 
 - Dashboard lokal untuk memantau simbol, timeframe, kondisi pasar, dan sinyal.
-- Penanda BUY/SELL pada grafik untuk sinyal yang tersimpan di jurnal lokal.
+- Pemindai scalping eksperimental memakai pullback EMA, pemicu candle, momentum RSI, arah MTF, dan jeda tiga candle M5 untuk meredam sinyal berulang. Aturan ini belum terbukti menguntungkan; jangan gunakan untuk order live sebelum hasil uji out-of-sample yang memadai.
+- Panah BUY/SELL historis dihitung ulang hanya untuk timeframe chart terpilih. Panah BUY berada di bawah candle, SELL di atasnya; order tereksekusi memakai marker kotak. Preview LIVE pada candle berjalan ditandai terpisah dan dapat hilang sebelum candle ditutup.
+- Setup BUY/SELL menampilkan Entry, SL, TP1, TP2, dan TP3 pada panel level dan grafik. Target berbasis risiko: trend 1R/2R/3R, scalping 0,8R/1,2R/1,6R. Saat mengirim order sesuai sinyal, MT5 tetap menerima TP2 sebagai satu-satunya take-profit; TP1 dan TP3 adalah level rekomendasi, bukan partial exit otomatis.
+- Skor konfluensi BUY/SELL bukan probabilitas profit. Scalping tetap manual-only; keputusan order berada pada trader.
 - Preset strategi trend dan scalping, dengan analisis timeframe lebih tinggi.
 - Halaman **Analisis Mandiri** dengan kalender ekonomi publik dan indikator makro dari FRED.
 - Analisis makro Gemini opsional, menggunakan konfigurasi backend.
 - Jurnal sinyal lokal dan fitur backtest yang tersedia di dashboard.
 - Notifikasi Telegram opsional.
-- Order sesuai sinyal dan entry manual di luar sinyal tersedia setelah order diizinkan saat aplikasi dijalankan. Entry manual wajib memakai SL/TP dan tetap dibatasi risiko serta konfirmasi.
-- Auto Pilot dimulai dalam keadaan **OFF** dan hanya tersedia jika diizinkan saat aplikasi dijalankan.
+- Order manual di luar sinyal tersedia selama terminal mengizinkan trading; tidak memerlukan flag startup. SL dan TP opsional, tetapi jika SL tidak dipasang potensi risiko tidak dibatasi.
+- Posisi terbuka dipantau terhadap setup candle tertutup pada simbol/timeframe terpilih. Analisis BUY/SELL atau WATCH yang berlawanan menampilkan peringatan untuk mengevaluasi/menutup posisi; Atlas tidak menutup posisi otomatis. SL rekomendasi memakai ATR dan, bila tersedia, swing terkonfirmasi dengan buffer ATR; TP memakai kelipatan jarak risiko Entry–SL, sehingga level mengikuti volatilitas dan struktur SL.
+- Auto Pilot dimulai dalam keadaan **OFF** dan hanya tersedia jika diizinkan saat aplikasi dijalankan; mode scalping selalu manual-only.
+- Level TP1/TP2/TP3 adalah rekomendasi berbasis jarak Entry–SL dan bukan jaminan bahwa target akan tercapai. Order sesuai sinyal tetap memakai TP2; backtest juga mengevaluasi exit TP2, bukan urutan target bertahap.
 
 ## Persyaratan
 
@@ -61,26 +66,13 @@ Buka dashboard di `http://127.0.0.1:8765/` atau halaman analisis mandiri di `htt
 
 ### Entry manual di luar sinyal
 
-Launcher default menjaga order manual tetap nonaktif. Untuk mengizinkan entry manual BUY/SELL tanpa sinyal strategi, jalankan monitor dari PowerShell secara interaktif dengan `--enable-order-sending`:
-
-```powershell
-python .\pro_regime_structure.py `
-  --symbol XAUUSD.m `
-  --timeframe M5 `
-  --higher-timeframe M15 `
-  --mode scalping `
-  --terminal "C:\Program Files\MetaTrader 5\terminal64.exe" `
-  --web `
-  --enable-order-sending
-```
-
-Saat diminta, ketik persis `ENABLE LIVE ORDERS`. Setelah dashboard terbuka, isi volume, SL, dan TP, lalu pilih **Open BUY manual** atau **Open SELL manual** dan tinjau konfirmasi. Order manual tidak memerlukan sinyal, tetapi tetap harus lolos validasi SL/TP, spread, margin, dan batas risiko akun. Fitur ini mengirim order ke akun MT5 yang sedang login; mulai dari akun demo.
+Tombol **Open BUY manual** dan **Open SELL manual** tersedia tanpa `--enable-order-sending` dan tanpa setup sinyal. Isi volume; SL dan TP boleh dikosongkan atau diisi satu per satu. Jika SL diisi, levelnya tetap melewati validasi sisi harga dan batas risiko. **Tanpa SL, potensi rugi tidak dibatasi oleh Atlas**; tanpa TP, posisi tidak memiliki take-profit. Untuk aksi cepat, mode scalping pada akun **DEMO** mengirim order buka dan tutup tanpa dialog konfirmasi. Di mode lain atau akun LIVE, dialog konfirmasi tetap ditampilkan. Pastikan terminal MT5 yang sedang login benar-benar akun demo.
 
 ## Order dan keamanan
 
 - Dashboard hanya mendengarkan pada `127.0.0.1` (localhost); jangan mengeksposnya ke internet atau jaringan publik.
 - Launcher mengaktifkan ketersediaan Auto Pilot, tetapi Auto Pilot **dimulai OFF**. Jangan aktifkan kecuali Anda memahami risikonya dan telah memeriksa akun, batas risiko, serta pengaturan strategi.
-- Entry manual di luar sinyal hanya tersedia setelah `--enable-order-sending` dan konfirmasi eksplisit di terminal. SL/TP, validasi risiko, serta konfirmasi dashboard tetap diwajibkan. Jangan mengandalkan sinyal sebagai pengganti keputusan dan pengelolaan risiko Anda sendiri.
+- Order manual dan penutupan posisi dari dashboard tidak memerlukan flag startup; terminal/akun tetap harus mengizinkan trading. Dialog konfirmasi dilewati hanya untuk mode scalping pada akun DEMO; mode lain dan akun LIVE tetap meminta konfirmasi. SL/TP manual opsional. Tanpa SL, kerugian dapat melampaui batas risiko apa pun yang ditampilkan karena tidak ada batas SL pada order. Posisi tidak ditutup otomatis saat ada peringatan perubahan tren.
 - File `.env` berisi rahasia dan dikecualikan dari Git. Jangan pernah menambahkan API key, data akun, log, atau database pribadi ke commit publik.
 - Data makro dapat tertunda dan feed publik dapat berubah atau tidak tersedia. Periksa sumber dan waktu observasi sebelum menggunakannya.
 

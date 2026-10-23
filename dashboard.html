@@ -188,6 +188,7 @@
     .action-button.manual-buy { color: #8be0bb; border-color: #245a46; background: #12342580; }
     .action-button.manual-sell { color: #ff9aa3; border-color: #673640; background: #351a2080; }
     .action-button.close { padding: 6px 9px; color: #ff9aa3; border-color: #61343c; background: #321b20; }
+    .position-warning { color: #ffcf78; font-weight: 650; }
     .action-button:disabled { cursor: not-allowed; opacity: .42; }
     .small { font-size: 10px; }
     .order-hint { margin-top: 7px; }
@@ -461,7 +462,7 @@
           </div>
         </div>
         <div class="price-chart-wrap">
-          <canvas id="price-chart" aria-label="Grafik candlestick MT5 dengan harga bid real-time dan EMA"></canvas>
+          <canvas id="price-chart" aria-label="Grafik candlestick MT5 dengan EMA, volume, histori sinyal BUY/SELL, dan order tereksekusi"></canvas>
           <div id="chart-tooltip" class="chart-tooltip"></div>
         </div>
         <div class="volume-chart-wrap">
@@ -471,8 +472,13 @@
           <span><i class="candle"></i>OHLC</span><span><i></i>EMA cepat</span>
           <span><i class="slow"></i>EMA lambat</span><span><i class="entry"></i>Entry</span>
           <span class="buy-marker">▲ BUY sinyal</span><span class="sell-marker">▼ SELL sinyal</span>
+          <span>↕ LIVE preview · dapat berubah</span>
+          <span>■ BUY/SELL order MT5</span>
           <span><i class="stop"></i>SL</span><span><i class="target"></i>Target</span>
           <span><i class="live-price-key"></i>Bid live</span><span><i class="volume-key"></i>Tick volume</span>
+        </div>
+        <div id="chart-marker-status" class="muted small" aria-live="polite">
+          Menunggu histori sinyal dan order…
         </div>
       </article>
 
@@ -487,11 +493,13 @@
         <div id="signal-description" class="signal-description">Sinyal dihitung setelah candle tertutup.</div>
         <div class="score-row">
           <div id="score-ring" class="score-ring" style="--score: 0%"><strong id="score">—</strong></div>
-          <div class="score-copy"><strong>Skor konfluensi</strong>
-            <span>Skor aturan, bukan peluang profit.</span><span id="direction-scores">BUY — / SELL —</span></div>
+          <div class="score-copy"><strong id="signal-strength-label">Kekuatan sinyal</strong>
+            <span>Skor konfluensi teknikal, bukan probabilitas profit.</span>
+            <span id="direction-scores">BUY — / SELL —</span></div>
         </div>
         <hr class="divider">
         <div id="levels" class="levels"></div>
+        <div id="level-analysis-note" class="muted small order-hint"></div>
         <div class="order-box">
           <label for="order-volume">Volume (lot)</label>
           <div class="order-controls">
@@ -504,11 +512,11 @@
           <div class="manual-order-box">
             <strong class="manual-order-title">Open order manual · di luar aturan sinyal</strong>
             <div class="manual-order-levels">
-              <label for="manual-stop">Stop loss wajib
-                <input id="manual-stop" type="number" min="0" step="any" inputmode="decimal" placeholder="Harga SL">
+              <label for="manual-stop">Stop loss (opsional)
+                <input id="manual-stop" type="number" min="0" step="any" inputmode="decimal" placeholder="Kosong = tanpa SL">
               </label>
-              <label for="manual-target">Take profit wajib
-                <input id="manual-target" type="number" min="0" step="any" inputmode="decimal" placeholder="Harga TP">
+              <label for="manual-target">Take profit (opsional)
+                <input id="manual-target" type="number" min="0" step="any" inputmode="decimal" placeholder="Kosong = tanpa TP">
               </label>
             </div>
             <div class="manual-order-buttons">
@@ -516,7 +524,7 @@
               <button id="manual-sell" class="action-button manual-sell" type="button" disabled>Open SELL manual</button>
             </div>
             <div id="manual-order-hint" class="muted small order-hint">
-              Wajib isi SL/TP. Risiko dibatasi sesuai batas konfigurasi; konfirmasi sebelum kirim.
+              Tidak wajib mengisi SL/TP. Tanpa SL, risiko tidak dibatasi.
             </div>
           </div>
         </div>
@@ -583,14 +591,14 @@
             <thead><tr>
               <th>Ticket / instrumen</th><th>Arah</th><th>Volume</th>
               <th>Harga buka</th><th>Harga kini</th><th>SL / TP</th>
-              <th>Floating P/L</th><th>Tindakan</th>
+              <th>Floating P/L</th><th>Analisis posisi</th><th>Tindakan</th>
             </tr></thead>
             <tbody id="positions-body">
-              <tr><td colspan="8" class="empty-cell">Belum ada posisi terbuka.</td></tr>
+              <tr><td colspan="9" class="empty-cell">Belum ada posisi terbuka.</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="small muted table-note">Tombol tutup hanya berlaku untuk posisi yang dipilih dan meminta konfirmasi.</div>
+        <div id="close-position-note" class="small muted table-note">Sinyal berlawanan memberi peringatan untuk mengevaluasi atau menutup posisi. Atlas tidak menutup otomatis.</div>
       </section>
 
       <section class="stats" aria-label="Market metrics">
@@ -743,6 +751,8 @@
       ? "—" : Number(value).toLocaleString("id-ID", { maximumFractionDigits: digits });
     let dashboardData = null;
     let actionNotice = null;
+    let positionWarningNotice = null;
+    let lastPositionWarningSignature = "";
     const autoPilotSettingsDirty = { risk: false, dailyLoss: false };
     let chartRange = 160;
     let chartOffset = 0;
@@ -917,13 +927,15 @@
         placeholder.className = "level-placeholder";
         placeholder.textContent = "Entry dan level risiko muncul saat setup memenuhi semua aturan.";
         container.append(placeholder);
+        $("level-analysis-note").textContent = "";
         return;
       }
       const levels = [
         ["Entry", setup.entry, "entry"],
         ["Stop-loss", setup.stop, "stop"],
         ["Target 1", setup.target1, "tp"],
-        ["Target 2", setup.target2, "tp"]
+        ["Target 2", setup.target2, "tp"],
+        ["Target 3", setup.target3, "tp"]
       ];
       for (const [labelText, valueText, type] of levels) {
         const item = document.createElement("div");
@@ -937,6 +949,8 @@
         item.append(label, value);
         container.append(item);
       }
+      $("level-analysis-note").textContent =
+        "Analisis: SL memakai ATR dan, bila tersedia, swing terkonfirmasi dengan buffer ATR; TP1/TP2/TP3 memakai kelipatan risiko aktual Entry–SL. Level menyesuaikan struktur dan volatilitas, bukan jaminan hasil.";
     }
 
     function renderJournal(journal) {
@@ -1116,8 +1130,28 @@
       note.textContent = `Data ${result.symbol} ${result.timeframe} / HTF ${result.higher_timeframe} · ${fmt(result.bars, 0)} candle tertutup · split 70/30 di ${new Date(result.split_time).toLocaleString("id-ID")} · ${fmt(detected, 0)} sinyal, ${fmt(tested, 0)} trade diuji.${sampleNote} Komisi ${fmt(result.costs.commission_points_round_turn, 1)} pt round-turn; slippage ${fmt(result.costs.slippage_points_per_side, 1)} pt per sisi. ${result.assumptions.entry} ${result.assumptions.exit} ${result.assumptions.intrabar} ${result.assumptions.costs} ${result.assumptions.sampling} ${result.assumptions.out_of_sample}`;
     }
 
+    function positionTrendWarning(position, setup, symbol) {
+      if (!setup || position.symbol !== symbol) return null;
+      const oppositeSignal = position.side === "BUY"
+        ? ["SELL", "WATCH SELL"].includes(setup.status)
+        : ["BUY", "WATCH BUY"].includes(setup.status);
+      const oppositeTrend = position.side === "BUY"
+        ? setup.trend === "BEARISH MTF"
+        : setup.trend === "BULLISH MTF";
+      if (!oppositeSignal && !oppositeTrend) return null;
+      return `Posisi ${position.side} ${position.symbol} #${position.ticket} berlawanan dengan analisis ${setup.status} (${setup.trend}). Pertimbangkan menutup atau mengevaluasi posisi; Atlas tidak menutup otomatis.`;
+    }
+
+    function fastScalpingDemoActions(data) {
+      return data.strategy_mode === "scalping" &&
+        data.account?.trade_mode === "DEMO";
+    }
+
     function renderAccount(data) {
       const account = data.account;
+      $("close-position-note").textContent = fastScalpingDemoActions(data)
+        ? "Sinyal berlawanan memberi peringatan untuk mengevaluasi atau menutup posisi. Scalping DEMO: tombol Tutup langsung menjalankan aksi; Atlas tidak menutup posisi otomatis."
+        : "Sinyal berlawanan memberi peringatan untuk mengevaluasi atau menutup posisi. Atlas tidak menutup otomatis; tombol tutup meminta konfirmasi kecuali pada scalping DEMO.";
       const mode = $("account-mode");
       const grid = $("account-grid");
       const positionsBody = $("positions-body");
@@ -1125,6 +1159,7 @@
       $("position-count").textContent = `${positions.length} posisi`;
       mode.className = "mode-pill";
       if (!account || !account.connected || data.account_error) {
+        lastPositionWarningSignature = "";
         mode.textContent = "TERPUTUS";
         mode.classList.add("offline");
         $("account-server").textContent = data.account_error || "Menunggu koneksi terminal";
@@ -1136,7 +1171,7 @@
         positionsBody.replaceChildren();
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 8;
+        cell.colSpan = 9;
         cell.className = "empty-cell";
         cell.textContent = "Posisi belum dapat dimuat.";
         row.append(cell);
@@ -1180,16 +1215,25 @@
 
       positionsBody.replaceChildren();
       if (!positions.length) {
+        lastPositionWarningSignature = "";
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 8;
+        cell.colSpan = 9;
         cell.className = "empty-cell";
         cell.textContent = "Tidak ada posisi terbuka pada akun.";
         row.append(cell);
         positionsBody.append(row);
         return;
       }
+      const positionWarnings = [];
       for (const position of positions) {
+        const warning = positionTrendWarning(position, data.setup, data.symbol);
+        if (warning) {
+          positionWarnings.push({
+            key: `${position.ticket}:${data.setup.bar_time}`,
+            message: warning
+          });
+        }
         const row = document.createElement("tr");
         const cells = [
           `${position.ticket} · ${position.symbol}`,
@@ -1198,13 +1242,15 @@
           fmt(position.price_open, 5),
           fmt(position.price_current, 5),
           `${fmt(position.sl, 5)} / ${fmt(position.tp, 5)}`,
-          `${fmt(position.profit + position.swap, 2)} ${account.currency}`
+          `${fmt(position.profit + position.swap, 2)} ${account.currency}`,
+          warning || "Belum ada sinyal berlawanan"
         ];
         cells.forEach((text, index) => {
           const cell = document.createElement("td");
           cell.textContent = text;
           if (index === 1) cell.className = position.side === "BUY" ? "side-buy" : "side-sell";
           if (index === 6) cell.className = (position.profit + position.swap) >= 0 ? "positive" : "negative";
+          if (index === 7 && warning) cell.className = "position-warning";
           row.append(cell);
         });
         const actionCell = document.createElement("td");
@@ -1212,26 +1258,36 @@
         closeButton.type = "button";
         closeButton.className = "action-button close";
         closeButton.textContent = "Tutup";
-        closeButton.disabled = !data.actions_enabled || !account.trade_allowed;
-        closeButton.title = data.actions_enabled
-          ? "Kirim instruksi tutup hanya untuk posisi ini"
-          : "Aktifkan order dari terminal terlebih dahulu";
+        closeButton.disabled = !account.trade_allowed;
+        closeButton.title = "Kirim instruksi tutup hanya untuk posisi ini";
         closeButton.addEventListener("click", async () => {
-          const confirmed = window.confirm(
-            `Kirim instruksi untuk menutup posisi ${position.ticket} ${position.symbol} ${position.side} ${position.volume} lot?`
-          );
-          if (!confirmed) return;
+          if (!fastScalpingDemoActions(data)) {
+            const confirmed = window.confirm(
+              `Kirim instruksi untuk menutup posisi ${position.ticket} ${position.symbol} ${position.side} ${position.volume} lot?`
+            );
+            if (!confirmed) return;
+          }
           closeButton.disabled = true;
           await sendAction("/api/close-position", {
             ticket: position.ticket,
             confirm: `TUTUP ${position.ticket}`
           });
-          closeButton.disabled = !data.actions_enabled || !account.trade_allowed;
+          closeButton.disabled = !account.trade_allowed;
         });
         actionCell.append(closeButton);
         row.append(actionCell);
         positionsBody.append(row);
       }
+      const warningSignature = positionWarnings.map(item => item.key).join("|");
+      if (warningSignature && warningSignature !== lastPositionWarningSignature) {
+        positionWarningNotice = {
+          message: positionWarnings[0].message,
+          expiresAt: Date.now() + 30000
+        };
+      } else if (!warningSignature) {
+        positionWarningNotice = null;
+      }
+      lastPositionWarningSignature = warningSignature;
     }
 
     async function sendAction(path, body) {
@@ -1286,8 +1342,10 @@
       $("symbol-input").disabled = Boolean(data.auto_pilot_enabled) ||
         !(data.symbols || []).length;
       updateSymbolInput(data);
+      const forwardDemo = selectedMode === "scalping" &&
+        !data.actions_enabled && !data.auto_pilot_enabled;
       $("strategy-hint").textContent = selectedMode === "scalping"
-        ? "Scalping memakai EMA 9/21, struktur lebih responsif, dan pullback RSI yang menguat (bukan wajib menembus 50 tepat pada candle sinyal). Tetap wajib searah HTF, ada BOS/struktur, dan lolos batas risiko. Disarankan chart M1/M5 dengan konfirmasi M5/M15; timeframe tidak diubah otomatis."
+        ? `${forwardDemo ? "FORWARD DEMO — Atlas tidak mengirim order. " : ""}EKSPERIMENTAL — hasil out-of-sample belum layak; jangan gunakan untuk order live. Sinyal memakai arah MTF, pullback EMA, pemicu candle, RSI, dan jeda 3 candle. Panah LIVE dapat hilang sebelum candle tutup; skor bukan probabilitas profit.`
         : "Trend / Swing memakai preset EMA 50/200 untuk setup yang lebih selektif. Pilih timeframe dan konfirmasi sesuai rencana Anda.";
       const terminalConnected = Boolean(data.account && data.account.connected && !data.error);
       $("connection").textContent = data.error ? "ERROR" : terminalConnected ? "LIVE" : "CONNECTING";
@@ -1296,8 +1354,16 @@
       $("chart-symbol").textContent = data.symbol || "LIVE";
       $("page-title").textContent = data.symbol || "Menunggu koneksi terminal";
       $("page-subtitle").textContent = setup
-        ? `${STRATEGY_MODE_LABELS[selectedMode]} · ${setup.trend} · ${setup.structure} · pembaruan berdasarkan candle tertutup`
+        ? `${STRATEGY_MODE_LABELS[selectedMode]} · ${setup.trend} · ${setup.structure} · sinyal tertutup; preview live dapat berubah`
         : (data.error || data.status || "Mengambil data market.");
+      const chartMarkers = data.chart_markers || [];
+      const signalMarkerCount = chartMarkers.filter(marker => marker.kind === "SIGNAL").length;
+      const previewMarkerCount = chartMarkers.filter(marker => marker.kind === "PREVIEW").length;
+      const orderMarkerCount = chartMarkers.filter(marker => marker.kind === "ORDER").length;
+      const journalSignalCount = Number(data.journal?.total_signals || 0);
+      $("chart-marker-status").textContent = data.chart_markers_error
+        ? `Riwayat order MT5 gagal dimuat: ${data.chart_markers_error}`
+        : `${signalMarkerCount} panah ${data.timeframe || ""} · ${journalSignalCount} sinyal tercatat · ${previewMarkerCount} preview live · ${orderMarkerCount} order MT5`;
       $("updated-chip").textContent = data.updated_at ? `Bar ${data.updated_at}` : "Belum diperbarui";
       $("signal-badge").textContent = data.error ? "ERROR" : (data.status || "WAITING").toUpperCase();
       const isWatch = data.status === "WATCH BUY" || data.status === "WATCH SELL";
@@ -1323,23 +1389,28 @@
         : setup && setup.status === "SELL" ? "Order SELL sesuai sinyal"
         : setup && setup.status === "BUY" ? "Order BUY sesuai sinyal" : "Order sesuai sinyal";
       $("order-hint").textContent = data.actions_enabled && data.account && data.account.trade_allowed
-        ? `Sinyal valid diperlukan. Batas risiko keras ${fmt(data.max_risk_percent, 2)}% equity; SL/TP dari setup.`
+        ? fastScalpingDemoActions(data)
+          ? `Scalping DEMO: order sinyal langsung dikirim tanpa dialog konfirmasi. Batas risiko ${fmt(data.max_risk_percent, 2)}% equity; SL/TP dari setup.`
+          : `Sinyal valid diperlukan. Batas risiko keras ${fmt(data.max_risk_percent, 2)}% equity; SL/TP dari setup.`
         : data.actions_enabled
-          ? "Trading dinonaktifkan pada terminal atau akun MT5; order dan tutup posisi diblokir."
-        : "Order dan penutupan posisi nonaktif. Aktifkan secara sadar dari terminal MT5.";
+          ? "Trading dinonaktifkan pada terminal atau akun MT5."
+        : fastScalpingDemoActions(data)
+          ? "Order sinyal sesuai aturan nonaktif; order manual dan penutupan posisi langsung tersedia tanpa konfirmasi."
+          : "Order sesuai sinyal nonaktif; order manual dan penutupan posisi tetap tersedia dengan konfirmasi.";
       const manualOrdersEnabled = Boolean(
-        data.actions_enabled && data.account && data.account.trade_allowed &&
+        data.account && data.account.connected && data.account.trade_allowed &&
         !data.auto_pilot_enabled
       );
       $("manual-buy").disabled = !manualOrdersEnabled;
       $("manual-sell").disabled = !manualOrdersEnabled;
-      $("manual-order-hint").textContent = !data.actions_enabled
-        ? "Aktifkan order dari terminal MT5 untuk menggunakan entry manual."
-        : !data.account || !data.account.trade_allowed
+      $("manual-order-hint").textContent = !data.account || !data.account.connected ||
+        !data.account.trade_allowed
           ? "Trading dinonaktifkan pada terminal atau akun MT5."
           : data.auto_pilot_enabled
             ? "Matikan Auto Pilot sebelum mengirim order manual."
-            : `Bebas dari aturan sinyal; SL/TP wajib. Risiko maksimal ${fmt(data.max_risk_percent, 2)}% equity dan konfirmasi wajib.`;
+            : fastScalpingDemoActions(data)
+              ? "Scalping akun DEMO: order manual langsung dikirim tanpa dialog konfirmasi. SL/TP opsional; tanpa SL risiko tidak dibatasi."
+              : "Order manual aktif tanpa perlu flag startup atau sinyal. SL/TP opsional; tanpa SL risiko tidak dibatasi. Konfirmasi tetap wajib di luar scalping DEMO.";
       const autoPilotEnabled = Boolean(data.auto_pilot_enabled);
       $("telegram-enabled").checked = Boolean(data.telegram_enabled);
       $("telegram-bot-token").placeholder = data.telegram_configured
@@ -1348,7 +1419,8 @@
       $("telegram-test").disabled = !data.telegram_configured;
       $("telegram-connection-status").textContent = data.telegram_last_status ||
         (data.telegram_configured ? "Bot tersimpan di monitor." : "Belum dikonfigurasi");
-      const autoPilotAvailable = Boolean(data.auto_pilot_available);
+      const scalpingManualOnly = selectedMode === "scalping";
+      const autoPilotAvailable = Boolean(data.auto_pilot_available) && !scalpingManualOnly;
       $("autopilot-box").classList.toggle("active", autoPilotEnabled);
       $("autopilot-status").textContent = autoPilotEnabled
         ? "AKTIF" : (data.auto_pilot_status || "OFF");
@@ -1382,7 +1454,9 @@
       const dailyLossText = dailyRisk
         ? `Rugi hari UTC ${fmt(dailyRisk.loss_percent, 2)}% / batas ${fmt(data.daily_loss_limit_percent, 2)}%`
         : `Batas rugi harian UTC ${fmt(data.daily_loss_limit_percent, 2)}%`;
-      $("autopilot-detail").textContent = !autoPilotAvailable
+      $("autopilot-detail").textContent = scalpingManualOnly
+        ? "Mode scalping adalah manual-only. Pada akun DEMO, aksi buka dan tutup posisi tidak meminta dialog konfirmasi untuk respons cepat."
+        : !autoPilotAvailable
         ? "Monitor ini tidak diluncurkan dengan izin Auto Pilot. Tutup monitor lalu jalankan shortcut Atlas versi terbaru."
         : `${fmt(data.auto_risk_percent, 2)}% risiko target per order · ${dailyLossText}. ` +
           "Lot dihitung dari SL; akun harus kosong saat diaktifkan; order baru diblokir selama ada posisi/order terbuka; batas rugi menghentikan order baru (tidak menutup posisi); mulai OFF setiap aplikasi dibuka." +
@@ -1407,7 +1481,19 @@
       if (data.market) renderLiveMarket(data.market);
       $("score").textContent = setup.score;
       $("score-ring").style.setProperty("--score", `${setup.score}%`);
-      $("direction-scores").textContent = `BUY ${setup.buy_score} / SELL ${setup.sell_score}`;
+      const buyStrength = Number(setup.buy_score);
+      const sellStrength = Number(setup.sell_score);
+      const dominantDirection = buyStrength > sellStrength
+        ? "BUY" : sellStrength > buyStrength ? "SELL" : null;
+      $("signal-strength-label").textContent = dominantDirection
+        ? `Bias ${dominantDirection}` : "Bias seimbang";
+      $("direction-scores").textContent =
+        `BUY ${buyStrength}% / SELL ${sellStrength}%`;
+      $("signal-description").textContent = selectedMode === "scalping"
+        ? "Setup order memakai candle tertutup. Panah LIVE pada chart hanya preview dan dapat hilang sebelum candle tutup; skor bukan peluang menang."
+        : data.error ? data.error : isWatch
+          ? "WATCH adalah setup awal untuk dipantau, bukan sinyal BUY/SELL. Tidak memicu alert order atau Auto Pilot."
+          : "Sinyal hanya memakai candle yang sudah ditutup.";
       $("breakdown-score").textContent = `${setup.score} / 100`;
       $("rsi").textContent = fmt(setup.rsi, 1);
       $("rsi-period").textContent = selectedMode === "scalping" ? "9" : "14";
@@ -1437,11 +1523,13 @@
       renderLevels(setup);
       if (actionNotice && Date.now() < actionNotice.expiresAt) {
         showNotice(actionNotice.label, actionNotice.message);
-      } else if (data.last_action) {
+      } else if (positionWarningNotice && Date.now() < positionWarningNotice.expiresAt) {
+        showNotice("PERINGATAN POSISI", positionWarningNotice.message);
+      }
+      else if (data.last_action) {
         actionNotice = null;
         showNotice("AKSI TERAKHIR", data.last_action);
-      }
-      else showNotice("STATUS", data.error || `${data.status}. Tidak ada order yang dikirim.`);
+      } else showNotice("STATUS", data.error || `${data.status}. Tidak ada order yang dikirim.`);
       redrawCharts(history);
     }
 
@@ -1591,6 +1679,14 @@
       freshness.classList.toggle("offline", !Number.isFinite(tickAge) || tickAge > 30);
     }
 
+    function timeframeDurationMs(timeframe) {
+      if (timeframe === "MN1") return 31 * 24 * 60 * 60 * 1000;
+      const match = /^([MHDW])(\d+)$/.exec(timeframe || "");
+      if (!match) return 0;
+      const unitMs = { M: 60_000, H: 3_600_000, D: 86_400_000, W: 604_800_000 };
+      return unitMs[match[1]] * Number(match[2]);
+    }
+
     function drawChart(history) {
       const canvas = $("price-chart");
       const rect = canvas.getBoundingClientRect();
@@ -1623,20 +1719,36 @@
       const liveMarket = chartOffset === 0 && dashboardData && dashboardData.market;
       const livePrice = liveMarket ? Number(liveMarket.bid) : NaN;
       const prices = rows.flatMap(row => [row.high, row.low, row.ema_fast, row.ema_slow]);
-      const rowIndicesByTime = new Map(rows.map((row, index) => [Date.parse(row.time), index]));
-      const chartSignals = (dashboardData?.journal?.recent || [])
-        .filter(signal => signal.direction === "BUY" || signal.direction === "SELL")
-        .map(signal => ({
-          ...signal,
-          rowIndex: rowIndicesByTime.get(Date.parse(signal.bar_time)),
-          entry: Number(signal.entry_price)
-        }))
-        .filter(signal => signal.rowIndex != null && Number.isFinite(signal.entry));
-      prices.push(...chartSignals.map(signal => signal.entry));
+      const candleDuration = timeframeDurationMs(dashboardData?.timeframe);
+      const chartMarkers = (dashboardData?.chart_markers || [])
+        .filter(marker => marker.direction === "BUY" || marker.direction === "SELL")
+        .map(marker => {
+          const markerTime = Date.parse(marker.bar_time);
+          if (!Number.isFinite(markerTime)) return null;
+          let rowIndex = -1;
+          for (let index = rows.length - 1; index >= 0; index--) {
+            const rowTime = Date.parse(rows[index].time);
+            if (rowTime <= markerTime) {
+              rowIndex = index;
+              if (candleDuration && markerTime - rowTime >= candleDuration) {
+                rowIndex = -1;
+              }
+              break;
+            }
+          }
+          return {
+            ...marker,
+            rowIndex,
+            price: Number(marker.price)
+          };
+        })
+        .filter(marker => marker && marker.rowIndex >= 0 && Number.isFinite(marker.price));
+      prices.push(...chartMarkers.map(marker => marker.price));
       if (Number.isFinite(livePrice)) prices.push(livePrice);
       const levels = dashboardData && dashboardData.setup
         ? [dashboardData.setup.entry, dashboardData.setup.stop,
-           dashboardData.setup.target1, dashboardData.setup.target2].filter(Number.isFinite)
+           dashboardData.setup.target1, dashboardData.setup.target2,
+           dashboardData.setup.target3].filter(Number.isFinite)
         : [];
       const min = Math.min(...prices, ...levels);
       const max = Math.max(...prices, ...levels);
@@ -1672,6 +1784,7 @@
         line(currentSetup.stop, "#ff6b78", [4, 4]);
         line(currentSetup.target1, "#41d69a", [3, 5]);
         line(currentSetup.target2, "#41d69a", [3, 5]);
+        line(currentSetup.target3, "#41d69a", [3, 5]);
       }
 
       rows.forEach((row, index) => {
@@ -1701,25 +1814,55 @@
       plotLine("ema_fast", "#73a9ff");
       plotLine("ema_slow", "#ae95ff");
 
-      chartSignals.forEach(signal => {
-        const row = rows[signal.rowIndex];
-        const center = left + xStep * (signal.rowIndex + .5);
-        const markerY = y(signal.entry);
-        const buy = signal.direction === "BUY";
+      const markerStacks = new Map();
+      chartMarkers.forEach(marker => {
+        const center = left + xStep * (marker.rowIndex + .5);
+        const buy = marker.direction === "BUY";
         const color = buy ? "#41d69a" : "#ff6b78";
-        const size = 5;
+        const stackKey = `${marker.rowIndex}:${marker.direction}:${marker.kind}`;
+        const stack = markerStacks.get(stackKey) || 0;
+        if (marker.kind === "ORDER") {
+          markerStacks.set(stackKey, stack + 1);
+          const markerY = y(marker.price) + (buy ? -1 : 1) * stack * 12;
+          const size = 5;
+          ctx.save();
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.rect(center - size, markerY - size, size * 2, size * 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          return;
+        }
+
+        markerStacks.set(stackKey, stack + 1);
+        const row = rows[marker.rowIndex];
+        const anchorY = y(buy ? row.low : row.high);
+        const arrowY = buy
+          ? Math.min(top + height - 10, anchorY + 12 + stack * 18)
+          : Math.max(top + 10, anchorY - 12 - stack * 18);
+        const size = 6;
         ctx.save();
+        ctx.strokeStyle = color;
         ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        if (marker.kind === "PREVIEW") ctx.setLineDash([3, 2]);
         ctx.beginPath();
-        ctx.moveTo(center, markerY + (buy ? size : -size));
-        ctx.lineTo(center - size, markerY + (buy ? -size : size));
-        ctx.lineTo(center + size, markerY + (buy ? -size : size));
-        ctx.closePath();
-        ctx.fill();
-        ctx.font = "bold 9px system-ui";
-        ctx.textAlign = "center";
-        ctx.textBaseline = buy ? "top" : "bottom";
-        ctx.fillText(signal.direction, center, markerY + (buy ? size + 2 : -size - 2));
+        if (buy) {
+          ctx.moveTo(center, arrowY + 13);
+          ctx.lineTo(center, arrowY);
+          ctx.lineTo(center - size, arrowY + size);
+          ctx.moveTo(center, arrowY);
+          ctx.lineTo(center + size, arrowY + size);
+        } else {
+          ctx.moveTo(center, arrowY - 13);
+          ctx.lineTo(center, arrowY);
+          ctx.lineTo(center - size, arrowY - size);
+          ctx.moveTo(center, arrowY);
+          ctx.lineTo(center + size, arrowY - size);
+        }
+        ctx.stroke();
         ctx.restore();
       });
 
@@ -1773,8 +1916,15 @@
         ctx.restore();
         const tooltip = $("chart-tooltip");
         const date = new Date(row.time);
+        const rowMarkers = chartMarkers.filter(marker => marker.rowIndex === chartHoverIndex)
+          .map(marker => marker.kind === "ORDER"
+            ? `${marker.direction} ORDER ${fmt(marker.volume, 2)} lot · ticket ${marker.ticket}`
+            : marker.kind === "PREVIEW"
+              ? `LIVE PREVIEW ${marker.direction} ${marker.timeframe || ""} · dapat berubah sebelum candle tutup`
+              : `${marker.direction} SIGNAL ${marker.timeframe || ""} · skor ${marker.score}`);
         tooltip.textContent =
-          `${date.toLocaleString("id-ID")} · O ${fmt(row.open, 5)} H ${fmt(row.high, 5)} L ${fmt(row.low, 5)} C ${fmt(row.close, 5)} · Vol ${fmt(row.tick_volume, 0)}`;
+          `${date.toLocaleString("id-ID")} · O ${fmt(row.open, 5)} H ${fmt(row.high, 5)} L ${fmt(row.low, 5)} C ${fmt(row.close, 5)} · Vol ${fmt(row.tick_volume, 0)}` +
+          (rowMarkers.length ? ` · ${rowMarkers.join(", ")}` : "");
         tooltip.style.display = "block";
       } else {
         $("chart-tooltip").style.display = "none";
@@ -2122,33 +2272,52 @@
         return;
       }
       const riskPercent = dashboardData.max_risk_percent;
-      const confirmed = window.confirm(
-        `Kirim ${setup.status} ${dashboardData.symbol} ${volume} lot?\n` +
-        `Entry referensi: ${fmt(setup.entry, 5)}\nSL: ${fmt(setup.stop, 5)}\n` +
-        `TP2: ${fmt(setup.target2, 5)}\nBatas risiko estimasi: ${fmt(riskPercent, 2)}% equity.\n\n` +
-        "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
-      );
-      if (!confirmed) return;
+      if (!fastScalpingDemoActions(dashboardData)) {
+        const confirmed = window.confirm(
+          `Kirim ${setup.status} ${dashboardData.symbol} ${volume} lot?\n` +
+          `Entry referensi: ${fmt(setup.entry, 5)}\nSL: ${fmt(setup.stop, 5)}\n` +
+          `TP1 referensi: ${fmt(setup.target1, 5)}\n` +
+          `TP2 dikirim sebagai TP order: ${fmt(setup.target2, 5)}\n` +
+          `TP3 referensi: ${fmt(setup.target3, 5)}\n` +
+          `Batas risiko estimasi: ${fmt(riskPercent, 2)}% equity.\n\n` +
+          "Order memakai satu TP (TP2); TP1 dan TP3 hanya level rekomendasi.\n" +
+          "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
+        );
+        if (!confirmed) return;
+      }
       $("place-order").disabled = true;
       await sendAction("/api/order", { volume, confirm: "KIRIM" });
     });
     async function submitManualOrder(direction) {
       if (!dashboardData) return;
       const volume = Number($("order-volume").value);
-      const stop = Number($("manual-stop").value);
-      const target = Number($("manual-target").value);
-      if (![volume, stop, target].every(Number.isFinite) ||
-          volume <= 0 || stop <= 0 || target <= 0) {
-        showNotice("DITOLAK", "Isi volume, stop loss, dan take profit dengan angka positif.");
+      const stopInput = $("manual-stop").value.trim();
+      const targetInput = $("manual-target").value.trim();
+      const stop = stopInput ? Number(stopInput) : null;
+      const target = targetInput ? Number(targetInput) : null;
+      if (!Number.isFinite(volume) || volume <= 0 ||
+          (stop !== null && (!Number.isFinite(stop) || stop <= 0)) ||
+          (target !== null && (!Number.isFinite(target) || target <= 0))) {
+        showNotice("DITOLAK", "Volume harus valid; SL/TP yang diisi harus berupa harga positif.");
         return;
       }
-      const accepted = window.confirm(
-        `Kirim order MANUAL ${direction} ${dashboardData.symbol} ${volume} lot tanpa syarat sinyal?\n` +
-        `SL: ${fmt(stop, 5)}\nTP: ${fmt(target, 5)}\n` +
-        `Batas risiko keras: ${fmt(dashboardData.max_risk_percent, 2)}% equity.\n\n` +
-        "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
-      );
-      if (!accepted) return;
+      const currentWarning = dashboardData.account?.positions
+        ?.map(position => positionTrendWarning(position, dashboardData.setup, dashboardData.symbol))
+        .find(Boolean);
+      const optionalRiskWarning = stop === null
+        ? "PERINGATAN: Tanpa SL, potensi kerugian tidak dibatasi."
+        : `Risiko SL dibatasi oleh pemeriksaan aplikasi (maks ${fmt(dashboardData.max_risk_percent, 2)}% equity).`;
+      if (!fastScalpingDemoActions(dashboardData)) {
+        const accepted = window.confirm(
+          `Kirim order MANUAL ${direction} ${dashboardData.symbol} ${volume} lot tanpa syarat sinyal?\n` +
+          `SL: ${stop === null ? "TIDAK DIPASANG" : fmt(stop, 5)}\n` +
+          `TP: ${target === null ? "TIDAK DIPASANG" : fmt(target, 5)}\n` +
+          `${optionalRiskWarning}\n` +
+          `${currentWarning ? `PERINGATAN ANALISIS: ${currentWarning}\n` : ""}\n` +
+          "Order dapat dieksekusi pada akun MT5. Lanjutkan?"
+        );
+        if (!accepted) return;
+      }
       $("manual-buy").disabled = true;
       $("manual-sell").disabled = true;
       await sendAction("/api/manual-order", {
